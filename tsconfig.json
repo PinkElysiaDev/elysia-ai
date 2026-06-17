@@ -1,0 +1,90 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@elysia-ai/core": [
+        "./packages/@elysia-ai/core/src/index.ts"
+      ],
+      "@elysia-ai/shared": [
+        "./packages/@elysia-ai/shared/src/index.ts"
+      ],
+      "koishi-plugin-elysia-ai-runtime": [
+        "./packages/elysia-ai-runtime/src/index.ts"
+      ],
+      "koishi-plugin-elysia-ai-body": [
+        "./packages/elysia-ai-body/src/index.ts"
+      ],
+      "@elysia-ai/behavior": [
+        "./packages/@elysia-ai/behavior/src/index.ts"
+      ],
+      "koishi-plugin-elysia-ai-behavior": [
+        "./packages/elysia-ai-behavior/src/index.ts"
+      ],
+      "@elysia-ai/bond": [
+        "./packages/@elysia-ai/bond/src/index.ts"
+      ],
+      "koishi-plugin-elysia-ai-bond": [
+        "./packages/elysia-ai-bond/src/index.ts"
+      ],
+      "@elysia-ai/brain": [
+        "./packages/@elysia-ai/brain/src/index.ts"
+      ],
+      "koishi-plugin-elysia-ai-brain": [
+        "./packages/elysia-ai-brain/src/index.ts"
+      ],
+      "@elysia-ai/cognition": [
+        "./packages/@elysia-ai/cognition/src/index.ts"
+      ],
+      "koishi-plugin-elysia-ai-cognition": [
+        "./packages/elysia-ai-cognition/src/index.ts"
+      ],
+      "@elysia-ai/dialogue": [
+        "./packages/@elysia-ai/dialogue/src/index.ts"
+      ],
+      "koishi-plugin-elysia-ai-dialogue": [
+        "./packages/elysia-ai-dialogue/src/index.ts"
+      ],
+      "@elysia-ai/homeostasis": [
+        "./packages/@elysia-ai/homeostasis/src/index.ts"
+      ],
+      "koishi-plugin-elysia-ai-homeostasis": [
+        "./packages/elysia-ai-homeostasis/src/index.ts"
+      ],
+      "@elysia-ai/memory": [
+        "./packages/@elysia-ai/memory/src/index.ts"
+      ],
+      "koishi-plugin-elysia-ai-memory": [
+        "./packages/elysia-ai-memory/src/index.ts"
+      ],
+      "@elysia-ai/model-gateway": [
+        "./packages/@elysia-ai/model-gateway/src/index.ts"
+      ],
+      "koishi-plugin-elysia-ai-model-gateway": [
+        "./packages/elysia-ai-model-gateway/src/index.ts"
+      ],
+      "@elysia-ai/observatory": [
+        "./packages/@elysia-ai/observatory/src/index.ts"
+      ],
+      "koishi-plugin-elysia-ai-observatory": [
+        "./packages/elysia-ai-observatory/src/index.ts"
+      ],
+      "@elysia-ai/perception": [
+        "./packages/@elysia-ai/perception/src/index.ts"
+      ],
+      "koishi-plugin-elysia-ai-perception": [
+        "./packages/elysia-ai-perception/src/index.ts"
+      ],
+      "@elysia-ai/persona": [
+        "./packages/@elysia-ai/persona/src/index.ts"
+      ],
+      "koishi-plugin-elysia-ai-persona": [
+        "./packages/elysia-ai-persona/src/index.ts"
+      ]
+    }
+  },
+  "exclude": [
+    "**/lib",
+    "**/dist",
+    "**/node_modules"
+  ]
+}

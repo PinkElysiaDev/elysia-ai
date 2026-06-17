@@ -17,3 +17,8 @@ tsconfig.tsbuildinfo
 *.njsproj
 *.sln
 packages/*/.turbo/turbo-build.log
+.turbo
+trace-runtime-resolution.log
+
+# build scratch bundles
+tmp/

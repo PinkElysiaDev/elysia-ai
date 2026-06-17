@@ -1,6 +1,7 @@
 {
   "name": "@root/elysia-ai",
   "version": "0.1.0",
+  "packageManager": "yarn@4.1.0",
   "private": true,
   "author": "PinkElysiaDev",
   "license": "AGPL-3.0-or-later",
@@ -11,9 +12,15 @@
   "scripts": {
     "postinstall": "node scripts/patch-tsconfig.js",
     "build": "turbo run build",
+    "build:all": "yarn workspaces foreach -At run build",
+    "publish:all": "yarn workspaces foreach -At --no-private npm publish --access public --tolerate-republish",
+    "publish:dry": "yarn workspaces foreach -At --no-private pack --dry-run",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check:source-hygiene": "node scripts/check-source-hygiene.cjs",
+    "clean:artifacts": "node scripts/clean-generated-artifacts.cjs",
+    "check:packages": "node scripts/check-packages.cjs"
   },
   "repository": {
     "type": "git",

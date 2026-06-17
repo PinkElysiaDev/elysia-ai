@@ -1,27 +1,46 @@
-import { defineConfig } from 'vitest/config'
-import { resolve } from 'path'
+﻿import { defineConfig } from 'vitest/config'
+import { resolve } from 'node:path'
 
 export default defineConfig({
   test: {
-    // 测试文件匹配规则
     include: [
       'packages/*/src/**/*.test.ts',
       'packages/*/src/__tests__/**/*.ts',
+      'packages/@elysia-ai/*/src/**/*.test.ts',
+      'packages/@elysia-ai/*/src/__tests__/**/*.ts',
       '__tests__/**/*.ts',
     ],
-    // 全局 globals（describe / it / expect 不需要 import）
     globals: true,
-    // 环境
     environment: 'node',
-    // 报告格式
     reporters: ['verbose'],
-    // 路径别名，指向源码而非编译产物
     alias: {
-      '@elysia-ai/core': resolve(__dirname, 'packages/core/src/index.ts'),
-      'koishi-plugin-elysia-ai-runtime': resolve(__dirname, 'packages/runtime/src/runtime.ts'),
-      'koishi-plugin-elysia-ai-body': resolve(__dirname, 'packages/body/src/index.ts'),
-      // Mock Koishi — 在测试环境中不运行真实 Koishi
-      'koishi': resolve(__dirname, '__mocks__/koishi.ts'),
+      '@elysia-ai/core': resolve(__dirname, 'packages/@elysia-ai/core/src/index.ts'),
+      '@elysia-ai/shared': resolve(__dirname, 'packages/@elysia-ai/shared/src/index.ts'),
+      '@elysia-ai/behavior': resolve(__dirname, 'packages/@elysia-ai/behavior/src/index.ts'),
+      '@elysia-ai/bond': resolve(__dirname, 'packages/@elysia-ai/bond/src/index.ts'),
+      '@elysia-ai/brain': resolve(__dirname, 'packages/@elysia-ai/brain/src/index.ts'),
+      '@elysia-ai/cognition': resolve(__dirname, 'packages/@elysia-ai/cognition/src/index.ts'),
+      '@elysia-ai/dialogue': resolve(__dirname, 'packages/@elysia-ai/dialogue/src/index.ts'),
+      '@elysia-ai/homeostasis': resolve(__dirname, 'packages/@elysia-ai/homeostasis/src/index.ts'),
+      '@elysia-ai/memory': resolve(__dirname, 'packages/@elysia-ai/memory/src/index.ts'),
+      '@elysia-ai/model-gateway': resolve(__dirname, 'packages/@elysia-ai/model-gateway/src/index.ts'),
+      '@elysia-ai/observatory': resolve(__dirname, 'packages/@elysia-ai/observatory/src/index.ts'),
+      '@elysia-ai/perception': resolve(__dirname, 'packages/@elysia-ai/perception/src/index.ts'),
+      '@elysia-ai/persona': resolve(__dirname, 'packages/@elysia-ai/persona/src/index.ts'),
+      'koishi-plugin-elysia-ai-runtime': resolve(__dirname, 'packages/elysia-ai-runtime/src/index.ts'),
+      'koishi-plugin-elysia-ai-body': resolve(__dirname, 'packages/elysia-ai-body/src/index.ts'),
+      'koishi-plugin-elysia-ai-behavior': resolve(__dirname, 'packages/elysia-ai-behavior/src/index.ts'),
+      'koishi-plugin-elysia-ai-bond': resolve(__dirname, 'packages/elysia-ai-bond/src/index.ts'),
+      'koishi-plugin-elysia-ai-brain': resolve(__dirname, 'packages/elysia-ai-brain/src/index.ts'),
+      'koishi-plugin-elysia-ai-cognition': resolve(__dirname, 'packages/elysia-ai-cognition/src/index.ts'),
+      'koishi-plugin-elysia-ai-dialogue': resolve(__dirname, 'packages/elysia-ai-dialogue/src/index.ts'),
+      'koishi-plugin-elysia-ai-homeostasis': resolve(__dirname, 'packages/elysia-ai-homeostasis/src/index.ts'),
+      'koishi-plugin-elysia-ai-memory': resolve(__dirname, 'packages/elysia-ai-memory/src/index.ts'),
+      'koishi-plugin-elysia-ai-model-gateway': resolve(__dirname, 'packages/elysia-ai-model-gateway/src/index.ts'),
+      'koishi-plugin-elysia-ai-observatory': resolve(__dirname, 'packages/elysia-ai-observatory/src/index.ts'),
+      'koishi-plugin-elysia-ai-perception': resolve(__dirname, 'packages/elysia-ai-perception/src/index.ts'),
+      'koishi-plugin-elysia-ai-persona': resolve(__dirname, 'packages/elysia-ai-persona/src/index.ts'),
+      koishi: resolve(__dirname, '__mocks__/koishi.ts'),
     },
   },
 })
