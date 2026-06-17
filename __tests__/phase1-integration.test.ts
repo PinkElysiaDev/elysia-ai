@@ -9,10 +9,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { createDefaultRuntime } from '../packages/runtime/src/runtime'
-import { handlePlatformMessage } from '../packages/body/src/index'
-import { parseManifest } from '../packages/runtime/src/manifest/loader'
-import type { Runtime } from '../packages/runtime/src/runtime'
+import { createDefaultRuntime } from '../packages/elysia-ai-runtime/src/runtime.js'
+import { handlePlatformMessage } from '../packages/elysia-ai-body/src/index.js'
+import { parseManifest } from '../packages/elysia-ai-runtime/src/manifest/loader.js'
+import type { Runtime } from '../packages/elysia-ai-runtime/src/runtime.js'
 
 let runtime: Runtime
 

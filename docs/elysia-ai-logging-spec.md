@@ -192,6 +192,35 @@ Elysia A.I. 的日志必须回答两个问题：
 
 ## 4. 各层日志职责规范
 
+在当前工程结构下，日志来源需要区分两类角色：
+
+### 宿主入口包
+- `koishi-plugin-elysia-ai-runtime`
+- `koishi-plugin-elysia-ai-body`
+
+这类日志更偏向：
+- 宿主接入
+- 生命周期
+- Loader 入口
+- 输入输出桥接
+
+### 内部能力包
+- `@elysia-ai/behavior`
+- `@elysia-ai/dialogue`
+- `@elysia-ai/brain`
+- `@elysia-ai/model-gateway`
+- `@elysia-ai/perception`
+- `@elysia-ai/homeostasis`
+- `@elysia-ai/observatory`
+
+这类日志更偏向：
+- 规划
+- 推理
+- 对话任务执行
+- 模型路由
+- 状态变化
+- 观测与 trace
+
 ## 4.1 `runtime`
 
 ### `info` 应输出
@@ -384,7 +413,7 @@ redactSensitiveFields: boolean
 ### 推荐例子
 ```ts
 logger.info({
-  plugin: 'elysia-ai-runtime',
+  plugin: 'koishi-plugin-elysia-ai-runtime',
   phase: 'startup',
   lifeCount: 3,
 }, 'runtime started')
@@ -392,7 +421,7 @@ logger.info({
 
 ```ts
 logger.debug({
-  plugin: 'elysia-ai-body',
+  plugin: 'koishi-plugin-elysia-ai-body',
   phase: 'normalize',
   stimulusId,
   platform,
