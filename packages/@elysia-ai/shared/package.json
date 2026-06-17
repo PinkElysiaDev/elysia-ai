@@ -1,10 +1,10 @@
 {
   "version": "0.1.0",
-  "name": "@elysia-ai/koishi-plugin-shared",
+  "name": "@elysia-ai/shared",
+  "description": "Elysia A.I. 共享工具库：服务注册、数值/刺激工具、AI 相关性选择器基类、Mongo 仓储基类与连接器、插件工厂（被各 koishi-plugin-elysia-ai-* 共享）。",
   "main": "lib/index.js",
   "type": "module",
   "types": "lib/index.d.ts",
-  "private": true,
   "license": "AGPL-3.0-or-later",
   "repository": {
     "type": "git",
@@ -18,12 +18,18 @@
   "files": [
     "lib"
   ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
   "exports": {
     ".": {
       "types": "./lib/index.d.ts",
       "import": "./lib/index.js"
     },
     "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@elysia-ai/core": "workspace:*"
   },
   "peerDependencies": {
     "koishi": "^4.18.0"

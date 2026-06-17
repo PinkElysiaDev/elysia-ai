@@ -51,12 +51,15 @@ export class MemoryEventBus<EventMap extends object>
       try {
         await handler(payload)
       } catch (error) {
+        // Listener 隔离：单个 listener 失败不得中断其他 listener，也不向 emit 调用方重抛。
+        // 事件总线是多订阅者的，一个观测/感知 listener 抛错若中止整条链路或冒泡回
+        // 发布方，会让无关订阅者（behavior / cognition / observatory）静默丢事件。
+        // 失败在此记录，其余 listener 继续执行。
         errorLog('event handler execution failed', error, {
           plugin: 'elysia-ai-core',
           phase: 'event-bus',
           event: String(event),
         })
-        throw error
       }
     }
   }

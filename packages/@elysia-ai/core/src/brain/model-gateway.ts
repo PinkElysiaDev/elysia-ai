@@ -31,8 +31,8 @@ export interface ModelGatewayRequest {
   task?: string
   lifeId?: string
   habitatId?: string
-  providerId?: string
-  model?: string
+  /** 模型槽位名（在 model-gateway 插件中配置） */
+  slot?: string
   messages: DialogueMessage[]
   metadata?: Record<string, unknown>
 }

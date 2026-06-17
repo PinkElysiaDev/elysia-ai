@@ -1,13 +1,10 @@
-import type { Stimulus } from '@elysia-ai/koishi-plugin-core'
+import type { Stimulus } from '@elysia-ai/core'
+import { clampPercent } from '@elysia-ai/shared'
 import type {
   BehaviorPlanningContext,
   StimulusScope,
   StimulusSignal,
 } from './types.js'
-
-function clampScore(value: number): number {
-  return Math.max(0, Math.min(100, Math.round(value)))
-}
 
 function calculateDirectness(stimulus: Stimulus): number {
   if (stimulus.type === 'addressing') return 100
@@ -30,7 +27,7 @@ function calculateContinuity(
 }
 
 function calculateBondAffinity(context: BehaviorPlanningContext): number {
-  return clampScore(context.bondAffinity ?? 0)
+  return clampPercent(context.bondAffinity ?? 0)
 }
 
 function calculateBufferPressure(
@@ -40,10 +37,10 @@ function calculateBufferPressure(
   const count = context.bucketStimulusCount ?? 1
   const baseFromCount = Math.min(count * 20, 80)
 
-  if (scope.type === 'habitat') return clampScore(baseFromCount + 20)
-  if (scope.type === 'thread') return clampScore(baseFromCount + 10)
-  if (scope.type === 'user') return clampScore(baseFromCount)
-  return clampScore(Math.max(0, baseFromCount - 20))
+  if (scope.type === 'habitat') return clampPercent(baseFromCount + 20)
+  if (scope.type === 'thread') return clampPercent(baseFromCount + 10)
+  if (scope.type === 'user') return clampPercent(baseFromCount)
+  return clampPercent(Math.max(0, baseFromCount - 20))
 }
 
 function calculateResponseNecessity(
@@ -60,7 +57,7 @@ function calculateResponseNecessity(
   if (scope.type === 'user') score += 15
   if (scope.type === 'habitat') score += 5
 
-  return clampScore(score)
+  return clampPercent(score)
 }
 
 function calculateStructuralDeterminability(

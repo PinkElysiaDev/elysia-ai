@@ -1,6 +1,6 @@
 {
   "version": "0.1.0",
-  "name": "@elysia-ai/koishi-plugin-observatory",
+  "name": "@elysia-ai/observatory",
   "main": "lib/index.js",
   "type": "module",
   "types": "lib/index.d.ts",
@@ -24,6 +24,14 @@
       "import": "./lib/index.js"
     },
     "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@elysia-ai/core": "workspace:*",
+    "koishi-plugin-elysia-ai-runtime": "workspace:*",
+    "@elysia-ai/shared": "workspace:*"
   },
   "peerDependencies": {
     "koishi": "^4.18.0"

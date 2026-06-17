@@ -1,4 +1,12 @@
-import type { Stimulus } from '@elysia-ai/koishi-plugin-core'
+import type {
+  BehaviorCandidate,
+  BehaviorDecision,
+  CognitionResult,
+  HomeostasisState,
+  PerceptionResult,
+  Persona,
+  Stimulus,
+} from '@elysia-ai/core'
 
 export type StimulusScopeType = 'user' | 'thread' | 'habitat' | 'life-global'
 
@@ -51,6 +59,11 @@ export interface BehaviorPlanningContext {
   userBufferedWindowMs: number
   threadBufferedWindowMs: number
   habitatBufferedWindowMs: number
+  lifeId?: string
+  perception?: PerceptionResult
+  cognition?: CognitionResult
+  homeostasis?: HomeostasisState
+  persona?: Persona
   bondAffinity?: number
   now?: number
   threadId?: string
@@ -59,10 +72,13 @@ export interface BehaviorPlanningContext {
 
 export interface BehaviorPlannedEventPayload {
   stimulusId: string
+  lifeId?: string
   scope: StimulusScope
   decision: ProgramRoutingDecision
   plan: ResponsePlan
   signal: StimulusSignal
+  candidates?: BehaviorCandidate[]
+  behaviorDecision?: BehaviorDecision
 }
 
 export interface BehaviorLogger {

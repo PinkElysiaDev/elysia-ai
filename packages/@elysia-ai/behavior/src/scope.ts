@@ -1,4 +1,4 @@
-import type { Stimulus } from '@elysia-ai/koishi-plugin-core'
+import type { Stimulus } from '@elysia-ai/core'
 import type { BehaviorPlanningContext, StimulusScope } from './types.js'
 
 function resolveThreadId(

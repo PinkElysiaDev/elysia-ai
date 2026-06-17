@@ -1,6 +1,6 @@
 {
   "version": "0.1.0",
-  "name": "@elysia-ai/koishi-plugin-behavior",
+  "name": "@elysia-ai/behavior",
   "main": "lib/index.js",
   "type": "module",
   "types": "lib/index.d.ts",
@@ -26,7 +26,8 @@
     "./package.json": "./package.json"
   },
   "dependencies": {
-    "@elysia-ai/koishi-plugin-core": "workspace:*",
+    "@elysia-ai/core": "workspace:*",
+    "@elysia-ai/shared": "workspace:*",
     "koishi-plugin-elysia-ai-runtime": "workspace:*"
   },
   "peerDependencies": {

@@ -1,10 +1,22 @@
 {
-  "extends": "../../../../../tsconfig",
+  "extends": "../../../tsconfig.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "lib"
+    "outDir": "lib",
+    "emitDeclarationOnly": false
   },
   "include": [
     "src"
+  ],
+  "references": [
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../../elysia-ai-runtime"
+    },
+    {
+      "path": "../shared"
+    }
   ]
 }
