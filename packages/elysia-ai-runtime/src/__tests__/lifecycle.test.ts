@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
-import { MemoryEventBus } from '@elysia-ai/koishi-plugin-core'
-import type { CoreEventMap } from '@elysia-ai/koishi-plugin-core'
+import { MemoryEventBus } from '@elysia-ai/core'
+import type { CoreEventMap } from '@elysia-ai/core'
 import { MinimalLifecycle } from '../lifecycle/minimal-lifecycle'
 
 function createEventBus() {

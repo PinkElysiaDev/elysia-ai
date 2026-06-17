@@ -1,0 +1,64 @@
+{
+  "name": "koishi-plugin-elysia-ai-memory",
+  "description": "Elysia A.I. memory Koishi plugin.",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "lib/index.cjs",
+  "module": "lib/index.mjs",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "require": "./lib/index.cjs",
+      "import": "./lib/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "clean": "node -e \"const fs=require('node:fs');fs.rmSync('lib',{recursive:true,force:true});fs.rmSync('tsconfig.tsbuildinfo',{force:true})\"",
+    "build:types": "tsc -p tsconfig.json --emitDeclarationOnly",
+    "build:cjs": "esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=lib/index.cjs --external:koishi --external:@elysia-ai/core --external:@elysia-ai/shared",
+    "build:esm": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=lib/index.mjs --external:koishi --external:@elysia-ai/core --external:@elysia-ai/shared",
+    "build": "node -e \"const fs=require('node:fs');fs.rmSync('lib',{recursive:true,force:true});fs.rmSync('tsconfig.tsbuildinfo',{force:true})\" && tsc -p tsconfig.json --emitDeclarationOnly && esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=lib/index.cjs --external:koishi --external:@elysia-ai/core --external:@elysia-ai/shared && esbuild src/index.ts --bundle --platform=node --format=esm --outfile=lib/index.mjs --external:koishi --external:@elysia-ai/core --external:@elysia-ai/shared"
+  },
+  "dependencies": {
+    "@elysia-ai/core": "workspace:*",
+    "@elysia-ai/shared": "workspace:*"
+  },
+  "peerDependencies": {
+    "koishi": "^4.18.0"
+  },
+  "devDependencies": {
+    "@elysia-ai/memory": "workspace:*",
+    "esbuild": "^0.23.1",
+    "koishi": "^4.18.0",
+    "typescript": "^5.0.0"
+  },
+  "keywords": [
+    "koishi",
+    "koishi-plugin",
+    "elysia-ai",
+    "memory"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PinkElysiaDev/elysia-ai.git"
+  },
+  "homepage": "https://github.com/PinkElysiaDev/elysia-ai",
+  "bugs": {
+    "url": "https://github.com/PinkElysiaDev/elysia-ai/issues"
+  },
+  "author": "PinkElysiaDev",
+  "koishi": {
+    "description": "Elysia A.I. memory Koishi plugin.",
+    "service": {
+      "implements": [
+        "elysia.memory"
+      ]
+    }
+  },
+  "license": "AGPL-3.0-or-later"
+}

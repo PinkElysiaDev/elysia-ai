@@ -1,14 +1,13 @@
-/**
- * elysia-ai-body Koishi 插件入口
- *
- * 此文件是 body 插件的 Koishi 集成入口，包含有 Koishi 依赖的代码。
- * 纯逻辑函数（如 handlePlatformMessage）已拆分到 message-handler.ts，
- * 可在不依赖 Koishi 的情况下直接导入和测试。
- */
-
 import { Context, Schema } from 'koishi'
+import type { BodyService } from '@elysia-ai/core'
 import type { Runtime } from 'koishi-plugin-elysia-ai-runtime'
+import { getRequiredElysiaService, registerElysiaService } from '@elysia-ai/shared'
 import { KoishiBodyAdapter } from './adapters/koishi/index.js'
+import {
+  createPlatformSendTaskFromDialogue,
+  OutboundRouteRegistry,
+  RouteMessageSender,
+} from './sender/index.js'
 
 export const name = 'elysia-ai-body'
 
@@ -16,14 +15,17 @@ export interface Config {}
 
 export const Config: Schema<Config> = Schema.object({})
 
-// 扩展 Context 类型，添加 runtime 属性
+export interface BodyPluginService extends BodyService {}
+
 declare module 'koishi' {
   interface Context {
+    'elysia.runtime'?: Runtime
     'elysia-ai-runtime'?: Runtime
+    'elysia.body'?: BodyPluginService
+    'elysia-ai-body'?: BodyPluginService
   }
 }
 
-// 重导出纯逻辑函数，保持外部使用兼容性
 export { handlePlatformMessage } from './message-handler.js'
 export * from './types/index.js'
 export * from './normalize/session-to-stimulus.js'
@@ -38,15 +40,15 @@ export function apply(ctx: Context, config: Config) {
     phase: 'apply',
   })
 
-  // 获取 runtime 实例
-  // 注意：需要 runtime 插件先被加载
-  const runtime = ctx['elysia-ai-runtime']
-  
+  const runtime = getRequiredElysiaService<Runtime>(ctx, {
+    formalName: 'elysia.runtime',
+    legacyName: 'elysia-ai-runtime',
+    logger,
+    plugin: 'elysia-ai-body',
+    description: 'runtime service',
+  })
+
   if (!runtime) {
-    logger.error('runtime not found; body plugin cannot continue', {
-      plugin: 'elysia-ai-body',
-      phase: 'apply',
-    })
     return
   }
 
@@ -55,17 +57,90 @@ export function apply(ctx: Context, config: Config) {
     phase: 'apply',
   })
 
-  // 创建并注册 Koishi 适配器
-  const adapter = new KoishiBodyAdapter(ctx, runtime, config)
+  const outboundRoutes = new OutboundRouteRegistry()
+  const sender = new RouteMessageSender(outboundRoutes)
+
+  const bodyService: BodyPluginService = {
+    getOutboundRoutes() { return outboundRoutes },
+    getSender() { return sender },
+    getDiagnostics() {
+      return {
+        plugin: 'elysia-ai-body',
+        enabled: true,
+        ready: true,
+        serviceName: 'elysia.body',
+      }
+    },
+  }
+
+  registerElysiaService(ctx, {
+    formalName: 'elysia.body',
+    legacyName: 'elysia-ai-body',
+    service: bodyService,
+    logger,
+    plugin: 'elysia-ai-body',
+  })
+
+  const adapter = new KoishiBodyAdapter(ctx, runtime, {
+    ...config,
+    outboundRoutes,
+  })
   adapter.registerListeners()
-  
+
+  const disposeDialogueOutput = runtime.context.eventBus.on('dialogue.output.created', async (output) => {
+    const { task, result } = output
+
+    if (task.mode !== 'reply-now') {
+      logger.debug('body sender skipped non-reply dialogue output', {
+        plugin: 'elysia-ai-body',
+        phase: 'sender',
+        mode: task.mode,
+        stimulusId: output.stimulusId,
+        outputId: output.outputId,
+      })
+      return
+    }
+
+    const sourceStimulusId = output.stimulusId
+    const route = sourceStimulusId ? outboundRoutes.get(sourceStimulusId) : undefined
+    const sendTask = createPlatformSendTaskFromDialogue(task, result, route)
+
+    try {
+      await runtime.context.eventBus.emit('sender.started', { task: sendTask })
+      await sender.send(sendTask)
+      await runtime.context.eventBus.emit('sender.completed', { task: sendTask })
+      await runtime.context.eventBus.emit('body.message.sent', { task: sendTask })
+
+      logger.info('body sender completed dialogue output', {
+        plugin: 'elysia-ai-body',
+        phase: 'sender',
+        stimulusId: sourceStimulusId,
+        outputId: output.outputId,
+        channelId: sendTask.target.channelId,
+        outputLength: sendTask.content.length,
+      })
+    } catch (error) {
+      await runtime.context.eventBus.emit('sender.failed', { task: sendTask, error })
+      await runtime.context.eventBus.emit('body.message.failed', { task: sendTask, error })
+
+      logger.error('body sender failed dialogue output', error, {
+        plugin: 'elysia-ai-body',
+        phase: 'sender',
+        stimulusId: sourceStimulusId,
+        outputId: output.outputId,
+        channelId: sendTask.target.channelId,
+      })
+    }
+  })
+
   logger.info('body adapter registered', {
     plugin: 'elysia-ai-body',
     phase: 'adapter',
   })
 
-  // 插件卸载时清理
   ctx.on('dispose', () => {
+    disposeDialogueOutput()
+    outboundRoutes.clear()
     adapter.removeListeners()
     logger.info('body adapter disposed', {
       plugin: 'elysia-ai-body',

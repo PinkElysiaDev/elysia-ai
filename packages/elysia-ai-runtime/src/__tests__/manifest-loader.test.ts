@@ -42,14 +42,14 @@ describe('parseManifest()', () => {
           id: 'test',
           type: 'test-type',
           extensions: {
-            '@elysia-ai/koishi-plugin-persona': { traits: ['friendly'] },
+            '@elysia-ai/persona': { traits: ['friendly'] },
           },
         },
       ],
     })
 
     const config = parseManifest(json)
-    expect(config.lifeInstances[0].extensions?.['@elysia-ai/koishi-plugin-persona']).toEqual({
+    expect(config.lifeInstances[0].extensions?.['@elysia-ai/persona']).toEqual({
       traits: ['friendly'],
     })
   })

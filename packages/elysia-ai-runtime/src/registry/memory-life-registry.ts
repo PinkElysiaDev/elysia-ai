@@ -1,4 +1,4 @@
-import type { LifeInstance } from '@elysia-ai/koishi-plugin-core'
+import type { LifeInstance } from '@elysia-ai/core'
 import type { LifeRegistry } from './life-registry.js'
 
 export class MemoryLifeRegistry implements LifeRegistry {

@@ -2,7 +2,6 @@
   "name": "koishi-plugin-elysia-ai-body",
   "description": "Elysia A.I. body plugin for Koishi",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "main": "lib/index.cjs",
   "module": "lib/index.mjs",
@@ -20,13 +19,15 @@
     "lib"
   ],
   "scripts": {
+    "clean": "node -e \"const fs=require('node:fs');fs.rmSync('lib',{recursive:true,force:true});fs.rmSync('tsconfig.tsbuildinfo',{force:true})\"",
     "build:types": "tsc -p tsconfig.json --emitDeclarationOnly",
-    "build:cjs": "esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=lib/index.cjs --external:koishi --external:@elysia-ai/koishi-plugin-core --external:koishi-plugin-elysia-ai-runtime",
-    "build:esm": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=lib/index.mjs --external:koishi --external:@elysia-ai/koishi-plugin-core --external:koishi-plugin-elysia-ai-runtime",
-    "build": "yarn build:types && yarn build:cjs && yarn build:esm"
+    "build:cjs": "esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=lib/index.cjs --external:koishi --external:koishi-plugin-elysia-ai-runtime --external:@elysia-ai/core --external:@elysia-ai/shared",
+    "build:esm": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=lib/index.mjs --external:koishi --external:koishi-plugin-elysia-ai-runtime --external:@elysia-ai/core --external:@elysia-ai/shared",
+    "build": "node -e \"const fs=require('node:fs');fs.rmSync('lib',{recursive:true,force:true});fs.rmSync('tsconfig.tsbuildinfo',{force:true})\" && tsc -p tsconfig.json --emitDeclarationOnly && esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=lib/index.cjs --external:koishi --external:koishi-plugin-elysia-ai-runtime --external:@elysia-ai/core --external:@elysia-ai/shared && esbuild src/index.ts --bundle --platform=node --format=esm --outfile=lib/index.mjs --external:koishi --external:koishi-plugin-elysia-ai-runtime --external:@elysia-ai/core --external:@elysia-ai/shared"
   },
   "dependencies": {
-    "@elysia-ai/koishi-plugin-core": "workspace:*",
+    "@elysia-ai/core": "workspace:*",
+    "@elysia-ai/shared": "workspace:*",
     "koishi-plugin-elysia-ai-runtime": "workspace:*"
   },
   "peerDependencies": {
@@ -37,10 +38,29 @@
     "koishi": "^4.18.0",
     "typescript": "^5.0.0"
   },
+  "keywords": [
+    "koishi",
+    "koishi-plugin",
+    "elysia-ai",
+    "body"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PinkElysiaDev/elysia-ai.git"
+  },
+  "homepage": "https://github.com/PinkElysiaDev/elysia-ai",
+  "bugs": {
+    "url": "https://github.com/PinkElysiaDev/elysia-ai/issues"
+  },
+  "author": "PinkElysiaDev",
   "koishi": {
     "description": {
-      "zh": "Elysia A.I. 躯体插件，负责将平台消息转换为内部 Stimulus 并注入 runtime。",
       "en": "Elysia A.I. body plugin converting platform messages into internal stimuli and injecting them into runtime."
+    },
+    "service": {
+      "implements": [
+        "elysia.body"
+      ]
     }
   },
   "license": "AGPL-3.0-or-later"

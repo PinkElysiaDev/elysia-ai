@@ -1,5 +1,5 @@
-import type { EventBus } from '@elysia-ai/koishi-plugin-core'
-import type { CoreEventMap } from '@elysia-ai/koishi-plugin-core'
+import type { EventBus } from '@elysia-ai/core'
+import type { CoreEventMap } from '@elysia-ai/core'
 
 export interface RuntimeLogger {
   info(message: string, meta?: Record<string, any>): void

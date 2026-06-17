@@ -1,5 +1,5 @@
-import type { CoreEventMap } from '@elysia-ai/koishi-plugin-core'
-import type { EventBus } from '@elysia-ai/koishi-plugin-core'
+import type { CoreEventMap } from '@elysia-ai/core'
+import type { EventBus } from '@elysia-ai/core'
 import type { Lifecycle, LifecycleState } from './index.js'
 
 /**

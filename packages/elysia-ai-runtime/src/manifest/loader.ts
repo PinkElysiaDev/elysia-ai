@@ -60,6 +60,7 @@ export function validateManifest(raw: unknown): ManifestConfig {
   }
 
   const lifeInstances: LifeInstanceConfig[] = []
+  const seenIds = new Set<string>()
 
   for (const item of obj['lifeInstances'] as unknown[]) {
     if (!item || typeof item !== 'object') {
@@ -71,6 +72,11 @@ export function validateManifest(raw: unknown): ManifestConfig {
     if (!instance['id'] || typeof instance['id'] !== 'string') {
       throw new Error('Manifest validation error: each life instance must have a non-empty string field "id"')
     }
+
+    if (seenIds.has(instance['id'])) {
+      throw new Error(`Manifest validation error: duplicate life instance id "${instance['id']}"`)
+    }
+    seenIds.add(instance['id'])
 
     if (!instance['type'] || typeof instance['type'] !== 'string') {
       throw new Error(`Manifest validation error: life instance "${instance['id']}" must have a non-empty string field "type"`)

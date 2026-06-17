@@ -35,7 +35,7 @@ export interface LifeInstanceConfig {
   /**
    * 插件扩展配置区
    * 按插件 configNamespace 隔离，避免字段冲突
-   * 例：extensions["@elysia-ai/koishi-plugin-persona"] = { traits: ["friendly"] }
+   * 例：extensions["@elysia-ai/persona"] = { traits: ["friendly"] }
    */
   extensions?: Record<string, Record<string, unknown>>
 }

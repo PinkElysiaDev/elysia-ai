@@ -1,4 +1,4 @@
-import type { Habitat } from '@elysia-ai/koishi-plugin-core'
+import type { Habitat } from '@elysia-ai/core'
 import type { HabitatRegistry } from './habitat-registry.js'
 
 export class MemoryHabitatRegistry implements HabitatRegistry {

@@ -1,4 +1,4 @@
-import type { Stimulus } from '@elysia-ai/koishi-plugin-core'
+import type { Stimulus } from '@elysia-ai/core'
 import type { Runtime } from '../runtime.js'
 
 /**

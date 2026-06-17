@@ -1,5 +1,5 @@
 
-import type { LifeInstance } from '@elysia-ai/koishi-plugin-core'
+import type { LifeInstance } from '@elysia-ai/core'
 
 export interface LifeRegistry {
   register(life: LifeInstance): void

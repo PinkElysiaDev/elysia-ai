@@ -2,12 +2,13 @@ import type { Context } from 'koishi'
 import type { Runtime } from 'koishi-plugin-elysia-ai-runtime'
 import { sessionToPlatformMessage } from './session-to-platform-message.js'
 import { platformMessageToStimulus } from '../../normalize/session-to-stimulus.js'
+import type { OutboundRouteRegistry } from '../../sender/index.js'
 
 /**
  * KoishiBodyAdapter 配置
  */
 export interface KoishiBodyAdapterConfig {
-  // 配置项可以后续扩展
+  outboundRoutes?: OutboundRouteRegistry
 }
 
 /**
@@ -67,6 +68,14 @@ export class KoishiBodyAdapter {
         
         // Step 2: 平台无关消息 → 系统内部刺激（统一转换入口）
         const stimulus = platformMessageToStimulus(platformMessage)
+
+        this.config.outboundRoutes?.remember({
+          sourceStimulusId: stimulus.id,
+          message: platformMessage,
+          send: async (content) => {
+            await session.send(content)
+          },
+        })
 
         logger.info('platform message converted to stimulus', {
           plugin: 'elysia-ai-body',
