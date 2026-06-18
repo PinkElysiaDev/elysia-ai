@@ -2,7 +2,8 @@
   "version": "0.1.0",
   "name": "@elysia-ai/shared",
   "description": "Elysia A.I. 共享工具库：服务注册、数值/刺激工具、AI 相关性选择器基类、Mongo 仓储基类与连接器、插件工厂（被各 koishi-plugin-elysia-ai-* 共享）。",
-  "main": "lib/index.js",
+  "main": "lib/index.cjs",
+  "module": "lib/index.js",
   "type": "module",
   "types": "lib/index.d.ts",
   "license": "AGPL-3.0-or-later",
@@ -19,12 +20,13 @@
     "lib"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json && esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=lib/index.cjs --external:koishi --external:zod --external:@elysia-ai/core"
   },
   "exports": {
     ".": {
       "types": "./lib/index.d.ts",
-      "import": "./lib/index.js"
+      "import": "./lib/index.js",
+      "require": "./lib/index.cjs"
     },
     "./package.json": "./package.json"
   },
@@ -35,6 +37,7 @@
     "koishi": "^4.18.0"
   },
   "devDependencies": {
+    "esbuild": "^0.23.1",
     "koishi": "^4.18.0",
     "typescript": "^5.0.0"
   }

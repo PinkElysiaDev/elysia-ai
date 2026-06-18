@@ -3,12 +3,14 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Elysia A.I. 核心领域类型、事件总线接口、仓储抽象与 Zod schema（被各 koishi-plugin-elysia-ai-* 共享的公共库）。",
-  "main": "lib/index.js",
+  "main": "lib/index.cjs",
+  "module": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
     ".": {
       "types": "./lib/index.d.ts",
-      "import": "./lib/index.js"
+      "import": "./lib/index.js",
+      "require": "./lib/index.cjs"
     },
     "./package.json": "./package.json"
   },
@@ -16,7 +18,7 @@
     "lib"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json && esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=lib/index.cjs --external:koishi --external:zod"
   },
   "repository": {
     "type": "git",
@@ -31,6 +33,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "esbuild": "^0.23.1",
     "typescript": "^5.0.0"
   },
   "license": "AGPL-3.0-or-later"

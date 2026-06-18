@@ -31,8 +31,8 @@
   "dependencies": {
     "@elysia-ai/core": "workspace:*",
     "@elysia-ai/model-gateway": "workspace:*",
-    "koishi-plugin-elysia-ai-runtime": "workspace:*",
-    "@elysia-ai/shared": "workspace:*"
+    "@elysia-ai/shared": "workspace:*",
+    "koishi-plugin-elysia-ai-runtime": "workspace:*"
   },
   "peerDependencies": {
     "koishi": "^4.18.0"
