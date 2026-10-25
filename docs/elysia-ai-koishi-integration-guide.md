@@ -44,14 +44,14 @@
 
 这两类包的工程要求不同，不能混为一谈。
 
-当前主链运行依赖 Koishi Context 上的服务挂载：
+当前主链运行依赖 Koishi Context 上的服务挂载（单名注册；Phase 36 前的 `elysia-ai-*` 旧服务名兼容层已于 2026-10 移除）：
 
 ```txt
-ctx['elysia-ai-runtime']
-ctx['elysia-ai-observatory']
-ctx['elysia-ai-model-gateway']
-ctx['elysia-ai-brain']
-ctx['elysia-ai-dialogue']
+ctx['elysia.runtime']
+ctx['elysia.observatory']
+ctx['elysia.modelGateway']
+ctx['elysia.brain']
+ctx['elysia.dialogue']
 ```
 
 其中 runtime 由宿主入口包提供，observatory / model-gateway / brain / dialogue 由内部能力包在 `apply()` 阶段挂载。
@@ -620,9 +620,9 @@ import { KoishiBodyAdapter } from './adapters/koishi/index.js'
 装配原因：
 
 - `runtime` 提供 `eventBus` 与 `receiveStimulus()`
-- `observatory` 依赖 runtime eventBus，应尽早加载以捕获后续主链事件，并挂载 `ctx['elysia-ai-observatory']`
-- `model-gateway` 依赖 runtime eventBus，并挂载 `ctx['elysia-ai-model-gateway']`
-- `brain` 依赖 runtime eventBus 与 model-gateway，并挂载 `ctx['elysia-ai-brain']`
+- `observatory` 依赖 runtime eventBus，应尽早加载以捕获后续主链事件，并挂载 `ctx['elysia.observatory']`
+- `model-gateway` 依赖 runtime eventBus，并挂载 `ctx['elysia.modelGateway']`
+- `brain` 依赖 runtime eventBus 与 model-gateway，并挂载 `ctx['elysia.brain']`
 - `behavior` 依赖 runtime eventBus，监听 `stimulus.received`
 - `dialogue` 依赖 runtime eventBus 与 brain，监听 `behavior.instruction`
 - `body` 依赖 runtime，负责 Koishi message 输入和 `dialogue.output.created` 输出发送
@@ -728,8 +728,8 @@ external/elysia-ai/packages/*/src
 ## Phase 36 Update
 - The minimal stable plugin set is now `runtime + observatory + model-gateway + brain + memory + bond + persona + perception + homeostasis + cognition + behavior + dialogue + body`.
 - Dialogue should inject memory and bond context through the formal Koishi services when available.
-- Legacy aliases are migration-only compatibility paths.
-- New plugin development should register a formal service name first, then optionally mirror the legacy alias for one transition window.
+- Legacy `elysia-ai-*` service aliases were fully removed in 2026-10; formal `elysia.*` names are the only API.
+- New plugins register a single formal service name (e.g. `elysia.mymodule`); no alias mirroring.
 
 ## Phase 37 Update: Independent Plugin Installation
 - Do not install Elysia as one central aggregate plugin.
@@ -740,7 +740,7 @@ external/elysia-ai/packages/*/src
 ## Phase 39 plugin boundary
 
 - Official Koishi plugin entries live in top-level `packages/elysia-ai-*` packages.
-- Internal implementation packages live in `packages/@elysia-ai/*` and expose `internalName` / `applyInternal` instead of official `name` / `apply`.
+- Internal implementation packages live in `packages/@elysia-ai/*` and expose `internalName` instead of official `name`.
 - Minimal dialogue chain: `koishi-plugin-elysia-ai-runtime` + `koishi-plugin-elysia-ai-model-gateway` + `koishi-plugin-elysia-ai-brain` + `koishi-plugin-elysia-ai-behavior` + `koishi-plugin-elysia-ai-dialogue` + `koishi-plugin-elysia-ai-body`.
 - Full life chain adds `memory`, `bond`, `persona`, `perception`, `cognition`, `homeostasis`, and `observatory` top-level plugins.
 - Debug observability chain: `runtime` + `observatory` + `model-gateway` + `brain` + `dialogue`.
@@ -928,8 +928,6 @@ Recommended commands after loading runtime and observatory:
 Static production checks should use exported helpers before plugin loading:
 
 - `preflightModelGatewayConfig(config)` from `koishi-plugin-elysia-ai-model-gateway`.
-- `preflightMemoryConfig(config)` from `koishi-plugin-elysia-ai-memory`.
-- `preflightBondConfig(config)` from `koishi-plugin-elysia-ai-bond`.
 - `runElysiaPreflight(configs)` from `koishi-plugin-elysia-ai-observatory` for combining independent plugin checks.
 
 Operational output is intentionally sanitized. It may include provider id/type/model, repository component/type, error code, counters, and timestamps. It must not include API keys, authorization tokens, full prompts, or full user messages.

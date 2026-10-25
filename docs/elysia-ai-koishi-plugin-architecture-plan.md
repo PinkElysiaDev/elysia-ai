@@ -37,7 +37,7 @@ runtime 只负责：
 - base state repository wiring
 - manifest loading
 
-runtime 不再直接创建 memory/bond 默认实现。迁移期兼容字段只允许由 memory/bond 插件安装后回填，并标记为 deprecated。
+runtime 不再直接创建 memory/bond 默认实现。形状回填兼容字段已于 2026-10 全部移除，能力一律经 cordis 服务消费。
 
 ## 3. Memory / Bond 插件化
 

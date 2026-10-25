@@ -18,11 +18,11 @@ Koishi/cordis         宿主底座：平台适配、插件装载、配置面板
           └ 13 官方插件 + 你的第三方插件
 ```
 
-**事件双轨模型**（最重要的一个概念）：
+**阶段与事件分工模型**（最重要的一个概念）：
 
 | 轨道 | 语义 | 机制 | 谁用 |
 |---|---|---|---|
-| 阶段（stage） | 处理步骤（命令侧） | `pipeline.registerHook({ stage, priority, run })`，kernel 拓扑排序调度 | 要参与主链处理的模块 |
+| 阶段（stage） | 处理步骤（命令侧） | `pipeline.registerHook({ stage, priority, run })`，kernel 拓扑排序调度 | 要参与主链处理的模块（单轨装配；2026-10 起不再保留事件兜底路径） |
 | 事件（event） | 已发生的事实（通知侧） | `eventBus.emit/on`，监听者错误隔离 | 观测者、旁路消费者 |
 
 阶段顺序由 `before/after` DAG 声明决定，**与插件加载顺序无关**——这是
@@ -107,7 +107,7 @@ export const apply = createElysiaPlugin<Config,
 
 依赖声明三级：
 - **必需**：`export const inject = [...]`（cordis 等待）；
-- **可选**：`getOptionalElysiaService(ctx, { formalName, legacyName })` 降级；
+- **可选**：`getOptionalElysiaService(ctx, { formalName })` 降级；
 - **manifest**：`dependencies`/`services.consumes`，启动时告警式校验。
 
 ## 4. 共享上下文（取代私搭缓存）
@@ -123,7 +123,7 @@ const perception = pctx.read<PerceptionResult>('perception')
 const view = pctx.forNamespace('emotion'); view.get(); view.set(...)
 ```
 
-官方命名空间常量：`NS_PERCEPTION` / `NS_COGNITION` / `NS_BEHAVIOR` /
+官方命名空间常量：`NS_PERCEPTION` / `NS_BEHAVIOR` /
 `NS_DIALOGUE`（`@elysia-ai/core`）。上下文随管线结束自动清理。
 
 ## 5. 类型化扩展事件（不改 core 发版）

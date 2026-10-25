@@ -229,18 +229,6 @@
    - brain 灞?`buildPersonaSystemPrompt()` 缁勫悎 systemPrompt + traits + tone
    - gateway metadata 鎼哄甫 personaName / personaTraits / personaTone
 
-14. **Perception / Cognition AI Enhanced 鍙€夎矾寰勫凡灏变綅**
-   - perception 鏀寔 `aiEnhanced` 閰嶇疆锛岄粯璁ゅ叧闂?   - perception AI enhanced 閫氳繃 brain `perception-analysis` capability 璋冪敤 LLM
-   - AI 缁撴灉鎸?confidence 涓庤鍒欑粨鏋滃悎骞讹紙intent / entities / sentiment锛?   - AI 澶辫触鏃?fallback 鍒?rule-based 缁撴灉
-   - cognition 宸叉秷璐?perception 缁撴灉锛坕ntent / sentiment 褰卞搷 salience锛?   - cognition 宸叉秷璐?homeostasis 鐘舵€侊紙sociability / energy / curiosity / mood 褰卞搷 salience锛?   - cognition 宸叉秷璐?persona traits锛堟俯鏌?濂藉/娲绘臣/娌夌ǔ寰皟 salience锛?   - cognition reason 宸叉敼涓哄姩鎬佸彲瑙ｉ噴瀛楃涓?   - cognition 鏀寔 `aiEnhanced` 閰嶇疆锛岄粯璁ゅ叧闂?   - cognition AI enhanced 閫氳繃 brain `cognition-reasoning` capability 璋冪敤 LLM
-   - AI 缁撴灉鎸?rule:0.6 / ai:0.4 鍔犳潈鍚堝苟 salience / continuity
-   - `shouldEnterBehavior` 鍙栬鍒欑増 OR (AI 鐗?AND 鍚堝苟鍒嗚秴杩囬槇鍊?
-   - perception / cognition 鐨?metadata 鍧囨惡甯?mode / aiRequested / aiSucceeded / provider / usage / errorSummary
-   - observatory 鑷姩閲囬泦杩欎簺 metadata锛屾棤闇€棰濆鏀瑰姩
-   - `BrainCapability` 宸叉墿灞曪細`perception-analysis` / `cognition-reasoning`
-   - `PerceptionResult` 宸插鍔?`metadata` 瀛楁
-   - `CognitionContext` 宸插鍔?`perception` / `homeostasis` 瀛楁
-
 ---
 
 ## 浜屻€佸綋鍓嶆湁鏁堢殑缁撴瀯缁撹

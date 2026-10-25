@@ -596,7 +596,6 @@ packages/@elysia-ai/homeostasis
 - mood
 - sociability
 - curiosity
-- responseThreshold
 
 当前第一轮实现会在 `life.loaded` 时初始化状态，并在 `perception.completed` 后执行一次稳态 tick，随后通过 `homeostasis.updated` 输出 `HomeostasisState / HomeostasisDelta`。
 同时 runtime 已提供 `DefaultHomeostasisService`，可消费 behavior execution 发出的 `behavior.homeostasis.update.requested`，将执行层产生的稳态变化写回 `LifeStateRepository<HomeostasisState>`，并在成功 / 失败时输出 `homeostasis.updated / homeostasis.update.failed` 观测事件。

@@ -16,7 +16,7 @@
 
 | 模块 | 当前包 | 定位 | 配置归属 | Service | 说明 |
 | --- | --- | --- | --- | --- | --- |
-| runtime | `koishi-plugin-elysia-ai-runtime` | Kernel Plugin | runtime | `elysia.runtime` / 兼容 `elysia-ai-runtime` | lifecycle、event bus、life/habitat/persona registry、scheduler/projection/state repository wiring |
+| runtime | `koishi-plugin-elysia-ai-runtime` | Kernel Plugin | runtime | `elysia.runtime` | lifecycle、event bus、life/habitat/persona registry、projection/state repository wiring |
 | body | `koishi-plugin-elysia-ai-body` | Adapter Plugin | body | 可选 `elysia.body` | Koishi session/message 与 Elysia stimulus/output 适配 |
 | memory | `@elysia-ai/memory` | Capability Plugin | memory | `elysia.memory` | memory repository、service、attributor、context provider、relevance selector、consolidation |
 | bond | `@elysia-ai/bond` | Capability Plugin | bond | `elysia.bond` | bond repository、service、context provider、relevance selector |
@@ -29,7 +29,6 @@
 | homeostasis | `@elysia-ai/homeostasis` | Capability Plugin | homeostasis | `elysia.homeostasis` | 生命状态 tick 与 state repository 写回 |
 | persona | `@elysia-ai/persona` | Capability Plugin | persona | `elysia.persona` | persona registry / loading / prompt context provider |
 | observatory | `@elysia-ai/observatory` | Capability Plugin | observatory | `elysia.observatory` | trace、recent events、gateway analytics、debug query |
-| scheduler | runtime 内部 | Runtime Subservice | runtime | `elysia.scheduler`（后续） | follow-up、retry、delayed stimulus |
 | projection | runtime 内部 | Runtime Subservice | runtime | `elysia.projection`（后续） | life routing、projection rule repository |
 | core | `@elysia-ai/core` | Pure Library | 无 | 无 | 类型、事件、契约、repository interface |
 | shared | `@elysia-ai/shared` | Pure Library | 无 | 无 | logger、AI utils、bounded cache、persona/relevance utilities |
@@ -91,12 +90,12 @@ Pure Library 不应具备 `koishi` 插件 metadata。
 
 1. `runtime` 是 kernel，不再拥有 memory/bond 默认实现。
 2. `memory` 与 `bond` 已拆为正式 capability plugins。
-3. `runtime.memoryService`、`runtime.memoryContextProvider`、`runtime.bondService`、`runtime.bondContextProvider` 仅作为迁移期 deprecated 兼容字段，由插件安装后回填。
+3. runtime 形状回填兼容字段（memoryService/memoryContextProvider/bondService/bondContextProvider 等）已于 2026-10 彻底移除；memory/bond 能力经 cordis 服务复合体消费。
 4. 新代码必须优先使用 `ctx['elysia.memory']` / `ctx['elysia.bond']` 或后续正式 service accessor。
 5. `core` / `shared` 保持 pure library，不进入 Koishi 插件加载面。
 ## Phase 36 Update
 - Formal Koishi service names are now the primary API: `elysia.runtime`, `elysia.modelGateway`, `elysia.brain`, `elysia.dialogue`, `elysia.behavior`, `elysia.perception`, `elysia.cognition`, `elysia.homeostasis`, `elysia.persona`, `elysia.observatory`, `elysia.memory`, `elysia.bond`, `elysia.body`.
-- Legacy `elysia-ai-*` aliases remain for migration, but new code and tests should prefer the formal names.
+- Legacy `elysia-ai-*` aliases were removed in 2026-10; all consumers use formal names only.
 - Capability plugins now declare `koishi.description` and `koishi.service.implements` in package metadata.
 - Recommended load order: `runtime` -> `observatory` -> `model-gateway` -> `brain` -> `memory` / `bond` -> `persona` / `perception` / `homeostasis` / `cognition` -> `behavior` -> `dialogue` -> `body`.
 - Missing required dependencies should fail fast without partial initialization; optional capability plugins may degrade gracefully.

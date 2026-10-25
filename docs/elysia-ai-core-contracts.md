@@ -338,7 +338,7 @@ Bond Context Injection v1 用于把长期关系从“可查询事实源”推进
 
 runtime 当前提供 `RuleBasedBondContextProvider`，它会按 actor、thread、habitat、projection、target、metrics 与 recency 多路召回候选关系，去重后按目标命中、关系指标、互动次数与最近交互打分排序，并输出 `BondContextPack`。该 provider 当前支持注入 `BondRelevanceSelector`，用于在 scored candidates 之后接管最终上下文选择。
 
-dialogue 当前可通过 runtime 注入的 `bondContextProvider` 在构造 `BrainRequest` 前构建 bond context；brain 会把 `BrainRequest.bondContext` 注入 system message 的关系上下文 section。
+dialogue 当前经 `elysia.bond` 服务复合体的 `contextProvider` 在构造 `BrainRequest` 前构建 bond context；brain 会把 `BrainRequest.bondContext` 注入 system message 的关系上下文 section。
 
 ---
 
@@ -422,12 +422,18 @@ Projection rule 运行期变更会发出：
 
 ---
 
-## 6.6 `ScheduledTask`
-表示数字生命的未来行为调度任务。
+## 6.6 `ScheduledTask`【已于 2026-09 退役】
 
-当前 scheduler 只承接最小闭环，不包含 cron、分布式锁、复杂 UI 等生产级能力。
+> **退役说明（2026-09）**：`ScheduledTask` / `ScheduledTaskRepository` /
+> `DefaultSchedulerService` 已整体退役——followup 任务类型无生产者、纯死链，
+> 定时能力统一收敛到 trigger 模块的 `TriggerTask` + `TriggerManager`
+> （misfire / 防重入 / 持久化策略只此一套）。以下段落为历史记录，不再生效。
 
-当前包含：
+~~表示数字生命的未来行为调度任务。~~
+
+~~当前 scheduler 只承接最小闭环，不包含 cron、分布式锁、复杂 UI 等生产级能力。~~
+
+历史字段（已不存在于代码）：
 
 - `id`
 - `type`
@@ -459,20 +465,7 @@ Projection rule 运行期变更会发出：
 - `maxAttempts`
 - `expiresAt`
 
-runtime 当前提供：
-
-- `MemoryScheduledTaskRepository`
-- `DefaultSchedulerService`
-
-`DefaultSchedulerService` 当前支持：
-
-- `schedule()`
-- `cancel()`
-- `tick()`
-- `runTask()`
-- `listTasks()`
-
-Scheduler 当前的默认 follow-up 行为保持克制：只在 `payload.stimulus` 显式提供合法 `Stimulus` 时重新发出 `stimulus.received`，不在 scheduler 内部发明复杂主动行为策略。
+runtime 当前提供（已随 scheduler 退役移除，见上方退役说明）：
 
 ---
 
@@ -812,7 +805,7 @@ Memory Context Injection v1 用于把长期记忆从“可查询事实源”推�
 
 runtime 当前提供 `RuleBasedMemoryContextProvider`，它会按 actor private、thread shared、habitat、global、relation 与 text 多路召回候选记忆，去重后按 importance / owner / relation / text overlap / recency 打分排序，并输出 `MemoryContextPack`。该 provider 当前支持注入 `MemoryRelevanceSelector`，用于在 scored candidates 之后接管最终上下文选择。
 
-dialogue 当前可通过 runtime 注入的 `memoryContextProvider` 在构造 `BrainRequest` 前构建 memory context；brain 会把 `BrainRequest.memoryContext` 注入 system message 的长期记忆上下文 section。
+dialogue 当前经 `elysia.memory` 服务复合体的 `contextProvider` 在构造 `BrainRequest` 前构建 memory context；brain 会把 `BrainRequest.memoryContext` 注入 system message 的长期记忆上下文 section。
 
 ### `MemoryQuery` / `MemorySearchResult`
 
@@ -893,7 +886,7 @@ runtime 当前提供默认内存实现：
 表示单个执行动作，当前支持：
 
 - `dialogue`
-- `schedule-followup`
+- `schedule-followup`【已退役 2026-09：无生产者死链，scheduler 整体移除】
 - `memory-update`
 - `bond-update`
 - `homeostasis-update`
@@ -937,7 +930,7 @@ behavior 包当前提供 `createBehaviorExecutionPlan()`，把 `ResponsePlan` fl
 runtime 当前提供 `DefaultBehaviorExecutionService`，统一承接：
 
 - dialogue action：调用 `DialogueService`
-- schedule-followup action：通过 scheduler 创建 `ScheduledTask`
+- ~~schedule-followup action：通过 scheduler 创建 `ScheduledTask`~~【已退役 2026-09】
 - memory / bond / homeostasis action：发出 request event，不在 execution 层发明具体长期算法
 - emit-event / noop action：作为显式副作用或空操作
 
@@ -1016,7 +1009,6 @@ StimulusSignal
 - `mood`
 - `sociability`
 - `curiosity`
-- `responseThreshold`
 - `metadata`
 
 ### `HomeostasisDelta`
@@ -1027,7 +1019,6 @@ StimulusSignal
 - `mood`
 - `sociability`
 - `curiosity`
-- `responseThreshold`
 - `reason`
 
 ### `HomeostasisUpdateRequest`
@@ -1085,8 +1076,8 @@ runtime 当前提供默认实现：
 - `lifeId`
 - `scopeKey`
 - `summary`
-- `salience`
-- `continuity`
+- ~~`salience`~~（已随 Wave 3 退役）
+- ~~`continuity`~~（已随 Wave 3 退役）
 - `shouldEnterBehavior`
 - `reason`（动态可解释字符串，包含触发信号列表）
 - `createdAt`
@@ -1094,7 +1085,7 @@ runtime 当前提供默认实现：
 
 它通过 `cognition.completed` 进入事件总线，其中 `shouldEnterBehavior` 可作为 behavior planning 的门控信号。
 
-cognition 当前消费以下上游信号影响 salience：
+cognition 早期消费以下上游信号影响 salience（该机制已随 Wave 3 退役，以下为历史记录）：
 - perception intent（share_feeling / ask_opinion / command / ask_fact）
 - perception sentiment（negative / positive / high confidence）
 - homeostasis 状态（sociability / energy / curiosity / mood）
@@ -1188,12 +1179,6 @@ domain.action
 - `projection.rule.updated`
 - `projection.rule.disabled`
 - `projection.rule.removed`
-- `scheduler.task.created`
-- `scheduler.task.started`
-- `scheduler.task.completed`
-- `scheduler.task.failed`
-- `scheduler.task.cancelled`
-- `scheduler.task.expired`
 - `perception.completed`
   - payload: `{ stimulusId, result: PerceptionResult }`
 - `homeostasis.updated`
@@ -1297,7 +1282,7 @@ runtime 当前提供：
 ### 当前已正式进入契约层的 repository
 - `LifeRepository`
 - `ProjectionRuleRepository`
-- `ScheduledTaskRepository`
+- ~~`ScheduledTaskRepository`~~【已退役 2026-09，随 scheduler 整体移除】
 - `StateRepository`
 - `StimulusRepository`
 - `BondRepository`

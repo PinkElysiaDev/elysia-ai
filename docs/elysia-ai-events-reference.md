@@ -14,8 +14,7 @@
 ```
 刺激段：stimulus.received → perception.completed
 路由：projection.routed
-生命段：cognition.reasoning → cognition.completed →
-        behavior.candidates.generated → behavior.selected →
+生命段：cognition.event.recorded → behavior.trigger.fired →
         behavior.execution.plan.created → behavior.instruction →
         behavior.execution.started/.action.*/.completed/.failed →
         dialogue.task.created → generation.requested → started →
@@ -45,22 +44,19 @@
 | 事件 | 载荷要点 | 发射方 |
 |---|---|---|
 | `perception.completed` | stimulusId, result（intent/entities/sentiment/context） | perception |
-| `homeostasis.updated` | lifeInstanceId, state（energy/mood/...） | homeostasis |
-| `homeostasis.update.failed` | lifeInstanceId, error | homeostasis |
-| `cognition.reasoning` | stimulusId, lifeId, scopeKey | cognition |
-| `cognition.completed` | CognitionResult（salience/continuity/shouldEnterBehavior） | cognition |
+| `homeostasis.updated` | lifeInstanceId, state（energy/mood/...）, delta | homeostasis |
+| `homeostasis.update.failed` | requestId, request, error | homeostasis |
+| `cognition.event.recorded` | stimulusId, lifeId, habitatId, event（TriggerEvent 事件行） | cognition |
 
 ## 行为
 
 | 事件 | 载荷要点 | 发射方 |
 |---|---|---|
-| `behavior.candidates.generated` | stimulusId, scope, candidates[], signal | behavior |
-| `behavior.selected` | stimulusId, lifeId, plan, signal, candidates | behavior |
+| `behavior.trigger.fired` | lifeId, habitatId, source（batcher/instant/scheduled/manual）, reason, stimulusId | behavior |
 | `behavior.execution.plan.created` | planId, plan | behavior |
 | `behavior.instruction` | instruction（actions[]） | behavior |
 | `behavior.execution.started/.completed/.failed` | planId, plan | behavior-execution |
 | `behavior.execution.action.started/.completed/.failed` | planId, actionId, action | behavior-execution |
-| `behavior.followup.scheduled` | taskId, task | behavior-execution |
 | `behavior.memory.update.requested` | lifeId, request | behavior-execution |
 | `behavior.bond.update.requested` | lifeId, request | behavior-execution |
 | `behavior.homeostasis.update.requested` | lifeId, request | behavior-execution |
@@ -83,11 +79,6 @@ memory 与 bond 事件互为镜像：`*.created` / `*.updated` / `*.update.faile
 `*.retrieved` / `*.retrieve.failed` / `*.context.requested` / `.selected` /
 `.failed` / `.fallback` / `*.consolidation.requested` / `.consolidated` /
 `.consolidation.failed`（memory 独有）/ `*.relevance.selection.*`。
-
-## 调度器
-
-`scheduler.task.created` / `.started` / `.completed` / `.failed` /
-`.cancelled` / `.expired`（载荷 taskId, task）。
 
 ## 仓储诊断 / 发送
 

@@ -58,7 +58,7 @@ Cordis `Service` 的关键行为：
 
 - `model-gateway`、`brain`、`observatory` 这类被其他插件依赖的能力，应优先以 service 形式暴露。
 - `runtime` 应提供基础 kernel service，而不是把所有能力都塞进一个运行时对象。
-- memory / bond 已选择作为独立 capability plugins 暴露：`elysia.memory` 与 `elysia.bond` 是正式服务边界，runtime 只保留迁移期兼容回填。
+- memory / bond 已选择作为独立 capability plugins 暴露：`elysia.memory` 与 `elysia.bond` 是正式服务边界，runtime 不再保留兼容回填（2026-10 移除）。
 
 ---
 

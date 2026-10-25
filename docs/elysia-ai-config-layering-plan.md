@@ -1,5 +1,6 @@
 # Elysia A.I. 配置项分层与可读性方案（2026-06）
 
+> **历史计划文档**：本方案撰写于 2026-06，其中部分配置项（salience 系列、aiModelSlot、aiEnhanced 等）已随后续重构退役；保留本文仅作分层手法的历史参考。
 ## 背景与目标
 
 对照代码核实：13 个 koishi-plugin 中 11 个有实质 Config schema，但存在两类问题：
