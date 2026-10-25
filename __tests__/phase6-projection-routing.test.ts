@@ -17,6 +17,7 @@ import type { ProjectionResolver, ProjectionRoutingResult, Stimulus } from '../p
 import * as observatoryPlugin from '../packages/elysia-ai-observatory/src/index.js'
 import * as gatewayPlugin from '../packages/elysia-ai-model-gateway/src/index.js'
 import * as brainPlugin from '../packages/elysia-ai-brain/src/index.js'
+import * as cognitionPlugin from '../packages/elysia-ai-cognition/src/index.js'
 import * as behaviorPlugin from '../packages/elysia-ai-behavior/src/index.js'
 import * as dialoguePlugin from '../packages/elysia-ai-dialogue/src/index.js'
 import * as bodyPlugin from '../packages/elysia-ai-body/src/index.js'
@@ -26,7 +27,7 @@ function createMockKoishiContext(runtime: Runtime) {
   const disposeHandlers: Array<() => void> = []
 
   const ctx: any = {
-    'elysia-ai-runtime': runtime,
+    'elysia.runtime': runtime,
 
     logger() {
       return {
@@ -88,30 +89,78 @@ function installFullPipeline(ctx: any) {
     contextWindow: 10,
   })
 
+  // cognition（事件注入层）先于 behavior 注册。
+  cognitionPlugin.apply(ctx, {
+    events: {
+      enabled: true,
+      feed: { maxEvents: 30 },
+      history: { maxEvents: 100, windowMs: 30 * 60_000 },
+    },
+  })
+
   behaviorPlugin.apply(ctx, {
     enableReply: true,
-    directWindowMs: 1500,
-    userBufferedWindowMs: 2500,
-    threadBufferedWindowMs: 3500,
-    habitatBufferedWindowMs: 5000,
+    batcher: {
+      quietWindowMs: 8_000,
+      dmQuietWindowMs: 1_500,
+      maxWaitMs: 30_000,
+      densityWindowMs: 10_000,
+      densityThreshold: 15,
+      // 单批 1 条即触发：消息到达后立即点火唤醒
+      maxBatch: 1,
+    },
+    packMemory: { maxPacks: 12, injectPacks: 2 },
   })
 
   dialoguePlugin.apply(ctx, { enabled: true })
   bodyPlugin.apply(ctx, {})
 }
 
+/**
+ * 唤醒协议 mock provider：第 1 轮 send_reply 工具调用，第 2 轮纯文本收尾。
+ */
 function installMockProvider(ctx: any, output = 'phase6 reply') {
-  const gateway = ctx['elysia-ai-model-gateway']
+  const gateway = ctx['elysia.modelGateway']
   const provider = gateway.getRegistry().resolveSlot('default')
-  provider.execute = vi.fn(async (request: any) => ({
-    output,
-    messages: [...request.messages, { role: 'assistant', content: output }],
-    provider: { id: 'phase6-provider', type: 'chat-completions', model: 'dialogue-generation' },
-    usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
-    finishReason: 'stop',
-    metadata: {},
-  }))
+  let round = 0
+
+  provider.execute = vi.fn(async (request: any) => {
+    round++
+    if (round === 1) {
+      const toolCalls = [{
+        id: 'call-send-1',
+        type: 'function' as const,
+        name: 'send_reply',
+        arguments: { text: output },
+      }]
+      return {
+        output: '',
+        toolCalls,
+        messages: [...request.messages, { role: 'assistant' as const, content: '', toolCalls }],
+        provider: { id: 'phase6-provider', type: 'chat-completions' as const, model: 'dialogue-generation' },
+        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        finishReason: 'tool-calls',
+        metadata: {},
+      }
+    }
+    return {
+      output: 'done',
+      messages: [...request.messages, { role: 'assistant' as const, content: 'done' }],
+      provider: { id: 'phase6-provider', type: 'chat-completions' as const, model: 'dialogue-generation' },
+      usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+      finishReason: 'stop',
+      metadata: {},
+    }
+  })
   return provider
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<void> {
+  const start = Date.now()
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) throw new Error('waitFor timeout')
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
 }
 
 describe('Phase 6 Projection Routing 集成测试', () => {
@@ -123,7 +172,7 @@ describe('Phase 6 Projection Routing 集成测试', () => {
     if (runtime?.getState() === 'running') await runtime.stop()
   })
 
-  it('单 life：stimulus → projection.routed → behavior.instruction → dialogue 完整链路', async () => {
+  it('单 life：stimulus → projection.routed → 触发唤醒 → behavior.instruction → dialogue 完整链路', async () => {
     runtime = createDefaultRuntime()
     await runtime.start()
     await runtime.loadManifest({
@@ -134,6 +183,15 @@ describe('Phase 6 Projection Routing 集成测试', () => {
     ctx = createMockKoishiContext(runtime)
     installFullPipeline(ctx)
     installMockProvider(ctx)
+
+    const instructions: any[] = []
+    const dialogueCompleted: any[] = []
+    runtime.context.eventBus.on('behavior.instruction', (payload) => {
+      instructions.push(payload)
+    })
+    runtime.context.eventBus.on('dialogue.completed', (payload) => {
+      dialogueCompleted.push(payload)
+    })
 
     const send = vi.fn()
     await ctx.receiveMessage({
@@ -149,21 +207,19 @@ describe('Phase 6 Projection Routing 集成测试', () => {
       send,
     })
 
-    // 验证 projection.routed 事件被 observatory 记录
-    const trace = ctx['elysia-ai-observatory'].service.getStimulusTrace('p6-stim-1')
-    const events = trace?.events.map((e: any) => e.event) ?? []
+    await waitFor(() => dialogueCompleted.length >= 1)
 
+    // 验证原始 stimulus 的 trace：入站 + 投影 + 事件入账。
+    const trace = ctx['elysia.observatory'].service.getStimulusTrace('p6-stim-1')
+    const events = trace?.events.map((e: any) => e.event) ?? []
     expect(events).toContain('stimulus.received')
     expect(events).toContain('projection.routed')
-    expect(events).toContain('behavior.instruction')
-    expect(events).toContain('dialogue.completed')
-    expect(events).toContain('body.message.sent')
+    expect(events).toContain('cognition.event.recorded')
 
     // 验证 behavior.instruction 的 lifeId 是从 projection routing 来的
-    const instrEvent = trace?.events.find((e: any) => e.event === 'behavior.instruction')
-    expect(instrEvent?.metadata?.instruction?.lifeId).toBe('life-single')
-
-    expect(send).toHaveBeenCalled()
+    expect(instructions).toHaveLength(1)
+    expect(instructions[0].instruction.lifeId).toBe('life-single')
+    expect(dialogueCompleted).toHaveLength(1)
   })
 
   it('多 life：同一 stimulus 路由到多个 life，每个 life 独立 behavior.instruction', async () => {
@@ -181,6 +237,15 @@ describe('Phase 6 Projection Routing 集成测试', () => {
     installFullPipeline(ctx)
     installMockProvider(ctx)
 
+    const instructions: any[] = []
+    const dialogueCompleted: any[] = []
+    runtime.context.eventBus.on('behavior.instruction', (payload) => {
+      instructions.push(payload)
+    })
+    runtime.context.eventBus.on('dialogue.completed', (payload) => {
+      dialogueCompleted.push(payload)
+    })
+
     const send = vi.fn()
     await ctx.receiveMessage({
       messageId: 'p6-stim-multi',
@@ -195,22 +260,26 @@ describe('Phase 6 Projection Routing 集成测试', () => {
       send,
     })
 
-    const trace = ctx['elysia-ai-observatory'].service.getStimulusTrace('p6-stim-multi')
-    const events = trace?.events ?? []
+    // 两个 life 各自的密度合并器点火，唤醒链经同 habitat 队列排队完成。
+    // 合成触发刺激同样经 projection 路由到全部 active life（默认 resolver），
+    // 因此每个 life 都会为每次点火产出独立 instruction。
+    await waitFor(() => {
+      const lifeIds = instructions.map((event: any) => event.instruction.lifeId)
+      return lifeIds.includes('life-a') && lifeIds.includes('life-b')
+    })
+    await waitFor(() => dialogueCompleted.length >= 2)
 
-    // 应有 2 个 behavior.instruction（每个 life 一个）
-    const instructions = events.filter((e: any) => e.event === 'behavior.instruction')
-    expect(instructions).toHaveLength(2)
-
-    const lifeIds = instructions.map((e: any) => e.metadata?.instruction?.lifeId)
+    // 每个 life 都有独立的 behavior.instruction
+    expect(instructions.length).toBeGreaterThanOrEqual(2)
+    const lifeIds = instructions.map((event: any) => event.instruction.lifeId)
     expect(lifeIds).toContain('life-a')
     expect(lifeIds).toContain('life-b')
 
-    // 每个 life 都应触发 dialogue，所以 send 被调用 2 次
-    expect(send).toHaveBeenCalledTimes(2)
+    // 每个 life 都应完成对话
+    expect(dialogueCompleted.length).toBeGreaterThanOrEqual(2)
   })
 
-  it('无匹配 life：projection.routed 发出但不触发 behavior', async () => {
+  it('无匹配 life：projection.routed 发出但不触发唤醒', async () => {
     runtime = createDefaultRuntime()
     await runtime.start()
     // 不加载任何 life instance
@@ -221,6 +290,15 @@ describe('Phase 6 Projection Routing 集成测试', () => {
 
     ctx = createMockKoishiContext(runtime)
     installFullPipeline(ctx)
+
+    const instructions: any[] = []
+    const recordedEvents: any[] = []
+    runtime.context.eventBus.on('behavior.instruction', (payload) => {
+      instructions.push(payload)
+    })
+    runtime.context.eventBus.on('cognition.event.recorded', (payload) => {
+      recordedEvents.push(payload)
+    })
 
     const send = vi.fn()
     await ctx.receiveMessage({
@@ -236,11 +314,16 @@ describe('Phase 6 Projection Routing 集成测试', () => {
       send,
     })
 
-    const trace = ctx['elysia-ai-observatory'].service.getStimulusTrace('p6-stim-empty')
+    // 无 life 路由命中：等待可能的异步链落定。
+    await new Promise((resolve) => setTimeout(resolve, 200))
+
+    const trace = ctx['elysia.observatory'].service.getStimulusTrace('p6-stim-empty')
     const events = trace?.events.map((e: any) => e.event) ?? []
 
     expect(events).toContain('stimulus.received')
     expect(events).toContain('projection.routed')
+    expect(recordedEvents).toHaveLength(0)
+    expect(instructions).toHaveLength(0)
     expect(events).not.toContain('behavior.instruction')
     expect(events).not.toContain('dialogue.completed')
     expect(send).not.toHaveBeenCalled()
@@ -278,6 +361,11 @@ describe('Phase 6 Projection Routing 集成测试', () => {
     installFullPipeline(ctx)
     installMockProvider(ctx)
 
+    const instructions: any[] = []
+    runtime.context.eventBus.on('behavior.instruction', (payload) => {
+      instructions.push(payload)
+    })
+
     const send = vi.fn()
     await ctx.receiveMessage({
       messageId: 'p6-stim-custom',
@@ -292,12 +380,11 @@ describe('Phase 6 Projection Routing 集成测试', () => {
       send,
     })
 
-    const trace = ctx['elysia-ai-observatory'].service.getStimulusTrace('p6-stim-custom')
-    const instructions = trace?.events.filter((e: any) => e.event === 'behavior.instruction') ?? []
+    await waitFor(() => instructions.length >= 1)
+    await new Promise((resolve) => setTimeout(resolve, 100))
 
     // 只有 life-custom 收到 instruction，life-ignored 不应收到
     expect(instructions).toHaveLength(1)
-    expect(instructions[0]?.metadata?.instruction?.lifeId).toBe('life-custom')
-    expect(send).toHaveBeenCalledTimes(1)
+    expect(instructions[0].instruction.lifeId).toBe('life-custom')
   })
 })

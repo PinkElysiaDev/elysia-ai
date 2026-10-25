@@ -29,11 +29,9 @@ const OBSERVED_EVENTS: Array<keyof CoreEventMap> = [
   'perception.completed',
   'homeostasis.updated',
 
-  'cognition.reasoning',
-  'cognition.completed',
+  'cognition.event.recorded',
 
-  'behavior.candidates.generated',
-  'behavior.selected',
+  'behavior.trigger.fired',
   'behavior.instruction',
   'behavior.execution.plan.created',
   'behavior.execution.started',
@@ -42,7 +40,6 @@ const OBSERVED_EVENTS: Array<keyof CoreEventMap> = [
   'behavior.execution.action.failed',
   'behavior.execution.completed',
   'behavior.execution.failed',
-  'behavior.followup.scheduled',
   'behavior.memory.update.requested',
   'behavior.bond.update.requested',
   'behavior.homeostasis.update.requested',
@@ -55,13 +52,6 @@ const OBSERVED_EVENTS: Array<keyof CoreEventMap> = [
   'memory.consolidation.requested',
   'memory.consolidated',
   'memory.consolidation.failed',
-
-  'scheduler.task.created',
-  'scheduler.task.started',
-  'scheduler.task.completed',
-  'scheduler.task.failed',
-  'scheduler.task.cancelled',
-  'scheduler.task.expired',
 
   'dialogue.task.created',
   'dialogue.generation.requested',

@@ -23,13 +23,19 @@ const ProviderSchema = Schema.object({
     Schema.const('responses' as const),
     Schema.const('gemini' as const),
     Schema.const('anthropic' as const),
-  ]).required().description('API 协议类型。'),
+    Schema.const('custom' as const),
+  ]).required().description('API 协议类型。custom = 自定义协议（配合下方 protocols 使用）。'),
   baseURL: Schema.string().required().description('API 基础域名（必填）。'),
   endpoint: Schema.string().description('API 路径前缀（可选，各协议有默认值）。'),
   apiKey: Schema.string().role('secret').required().description('API 密钥。'),
+  protocol: Schema.string().description('type=custom 时的协议引用：protocols 字典键或内置 preset id（openai-chat / anthropic-messages / gemini-generate / openai-responses）。'),
   maxTokens: Schema.number().default(4096).description('最大输出 token 数。'),
   temperature: Schema.number().default(0.7).description('采样温度。'),
   timeoutMs: Schema.number().description('Provider 请求超时时间（毫秒）。'),
+  maxTokensField: Schema.union([
+    Schema.const('max_tokens' as const),
+    Schema.const('max_completion_tokens' as const),
+  ]).description('token 上限字段名（o 系模型要求 max_completion_tokens）。'),
 }).description('API 服务配置。')
 
 const ProviderSlotSchema = Schema.object({
@@ -43,6 +49,7 @@ const ProviderSlotSchema = Schema.object({
 export const Config: Schema<ModelGatewayConfig> = Schema.intersect([
   Schema.object({
     providers: Schema.dict(ProviderSchema).description('API 服务注册表，按 provider id 索引。每个 provider 定义可用的 API 服务（协议类型、域名、密钥等）。'),
+    protocols: Schema.dict(Schema.any().description('CustomProtocolConfig JSON：request（路径/请求体注解树）、response（路径映射/流帧）、aliases（键名别名）等。')).description('自定义协议定义（type=custom 的 provider 经 protocol 字段引用）。JSON 结构见 @elysia-ai/protocol-custom；内置 preset id（openai-chat 等）可直接引用无需在此定义。'),
   }).description('Provider 配置（API 服务）'),
   Schema.object({
     providerSlots: Schema.dict(ProviderSlotSchema).description('模型槽位，引用 provider id 并指定模型。按用途分配模型（如主力模型、快速模型、推理模型等）。'),
@@ -88,9 +95,11 @@ export const Config: Schema<ModelGatewayConfig> = Schema.intersect([
 ]) as Schema<ModelGatewayConfig>
 
 
-const PROVIDER_TYPES = new Set(['chat-completions', 'responses', 'gemini', 'anthropic'])
+const PROVIDER_TYPES = new Set(['chat-completions', 'responses', 'gemini', 'anthropic', 'custom'])
 
-function assertProviderType(providerId: string, type: unknown): asserts type is 'chat-completions' | 'responses' | 'gemini' | 'anthropic' {
+const PRESET_PROTOCOL_IDS = new Set(['openai-chat', 'anthropic-messages', 'gemini-generate', 'openai-responses'])
+
+function assertProviderType(providerId: string, type: unknown): asserts type is 'chat-completions' | 'responses' | 'gemini' | 'anthropic' | 'custom' {
   if (typeof type !== 'string' || !PROVIDER_TYPES.has(type)) {
     throw new Error(`elysia-ai-model-gateway: provider "${providerId}" has unknown type "${String(type)}"`)
   }
@@ -110,6 +119,15 @@ export function validateModelGatewayConfig(config: ModelGatewayConfig): void {
 
     if (!provider.baseURL) {
       throw new Error(`elysia-ai-model-gateway: provider "${providerId}" requires baseURL`)
+    }
+
+    if (provider.type === 'custom') {
+      if (!provider.protocol) {
+        throw new Error(`elysia-ai-model-gateway: custom provider "${providerId}" requires protocol (protocols dict key or preset id)`)
+      }
+      if (!(provider.protocol in (config.protocols ?? {})) && !PRESET_PROTOCOL_IDS.has(provider.protocol)) {
+        throw new Error(`elysia-ai-model-gateway: custom provider "${providerId}" references unknown protocol "${provider.protocol}"`)
+      }
     }
   }
 
@@ -182,7 +200,6 @@ function registerDebugCommands(ctx: Context, service: DefaultModelGatewayService
     .action((_argv: unknown, limit?: unknown) => {
       const observatory = getOptionalElysiaService<{ service?: GatewayFailureEventSource } & GatewayFailureEventSource>(ctx, {
         formalName: 'elysia.observatory',
-        legacyName: 'elysia-ai-observatory',
         plugin: 'elysia-ai-model-gateway',
       })
       return formatGatewayFailures(observatory?.service ?? observatory, (limit as number | undefined) ?? 10)
@@ -198,7 +215,6 @@ export function apply(ctx: Context, config: ModelGatewayConfig) {
   const logger = ctx.logger('elysia-ai-model-gateway')
   const runtime = getRequiredElysiaService<{ context: { eventBus: EventBus<CoreEventMap> } }>(ctx, {
     formalName: 'elysia.runtime',
-    legacyName: 'elysia-ai-runtime',
     logger,
     plugin: 'elysia-ai-model-gateway',
     description: 'runtime event bus',
@@ -219,7 +235,6 @@ export function apply(ctx: Context, config: ModelGatewayConfig) {
 
   registerElysiaService(ctx, {
     formalName: 'elysia.modelGateway',
-    legacyName: 'elysia-ai-model-gateway',
     service: gatewayRuntime.service,
     logger,
     plugin: 'elysia-ai-model-gateway',

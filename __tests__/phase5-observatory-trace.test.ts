@@ -2,7 +2,7 @@
  * Phase 5 Observatory Trace 集成测试
  *
  * 验证 observatory 作为旁路观察者接入主链：
- * 1. 记录完整 message → body.message.sent 主链 trace
+ * 1. 记录完整 message → cognition → 触发唤醒 → dialogue 主链 trace
  * 2. 记录 gateway / brain / dialogue 失败链路
  * 3. recent events 遵守 maxRecords 上限
  * 4. payload sanitize 不应导致 observatory 崩溃
@@ -15,6 +15,7 @@ import type { Runtime } from '../packages/elysia-ai-runtime/src/runtime.js'
 import * as observatoryPlugin from '../packages/elysia-ai-observatory/src/index.js'
 import * as gatewayPlugin from '../packages/elysia-ai-model-gateway/src/index.js'
 import * as brainPlugin from '../packages/elysia-ai-brain/src/index.js'
+import * as cognitionPlugin from '../packages/elysia-ai-cognition/src/index.js'
 import * as behaviorPlugin from '../packages/elysia-ai-behavior/src/index.js'
 import * as dialoguePlugin from '../packages/elysia-ai-dialogue/src/index.js'
 import * as bodyPlugin from '../packages/elysia-ai-body/src/index.js'
@@ -24,7 +25,7 @@ function createMockKoishiContext(runtime: Runtime) {
   const disposeHandlers: Array<() => void> = []
 
   const ctx: any = {
-    'elysia-ai-runtime': runtime,
+    'elysia.runtime': runtime,
 
     logger() {
       return {
@@ -105,12 +106,27 @@ async function installPipeline(ctx: any, observatoryConfig: { maxRecords?: numbe
     contextWindow: 10,
   })
 
+  // cognition（事件注入层）先于 behavior 注册。
+  cognitionPlugin.apply(ctx, {
+    events: {
+      enabled: true,
+      feed: { maxEvents: 30 },
+      history: { maxEvents: 100, windowMs: 30 * 60_000 },
+    },
+  })
+
   behaviorPlugin.apply(ctx, {
     enableReply: true,
-    directWindowMs: 1500,
-    userBufferedWindowMs: 2500,
-    threadBufferedWindowMs: 3500,
-    habitatBufferedWindowMs: 5000,
+    batcher: {
+      quietWindowMs: 8_000,
+      dmQuietWindowMs: 1_500,
+      maxWaitMs: 30_000,
+      densityWindowMs: 10_000,
+      densityThreshold: 15,
+      // 单批 1 条即触发：消息到达后立即点火唤醒
+      maxBatch: 1,
+    },
+    packMemory: { maxPacks: 12, injectPacks: 2 },
   })
 
   dialoguePlugin.apply(ctx, {
@@ -120,33 +136,60 @@ async function installPipeline(ctx: any, observatoryConfig: { maxRecords?: numbe
   bodyPlugin.apply(ctx, {})
 }
 
+/**
+ * 唤醒协议 mock provider：第 1 轮 send_reply 工具调用，第 2 轮纯文本收尾。
+ */
 function installMockProvider(ctx: any, output = 'Elysia phase 5 reply') {
-  const gateway = ctx['elysia-ai-model-gateway']
+  const gateway = ctx['elysia.modelGateway']
   const provider = gateway.getRegistry().resolveSlot('default')
+  let round = 0
 
-  provider.execute = vi.fn(async (request: any) => ({
-    output,
-    messages: [
-      ...request.messages,
-      { role: 'assistant' as const, content: output },
-    ],
-    provider: {
-      id: 'slot:default',
-      type: 'chat-completions' as const,
-      model: 'dialogue-generation',
-    },
-    usage: {
-      inputTokens: 10,
-      outputTokens: 5,
-      totalTokens: 15,
-    },
-    finishReason: 'stop',
-    metadata: {
-      source: 'phase5-test',
-    },
-  }))
+  provider.execute = vi.fn(async (request: any) => {
+    round++
+    if (round === 1) {
+      const toolCalls = [{
+        id: 'call-send-1',
+        type: 'function' as const,
+        name: 'send_reply',
+        arguments: { text: output },
+      }]
+      return {
+        output: '',
+        toolCalls,
+        messages: [...request.messages, { role: 'assistant' as const, content: '', toolCalls }],
+        provider: {
+          id: 'slot:default',
+          type: 'chat-completions' as const,
+          model: 'dialogue-generation',
+        },
+        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        finishReason: 'tool-calls',
+        metadata: { source: 'phase5-test' },
+      }
+    }
+    return {
+      output: 'done',
+      messages: [...request.messages, { role: 'assistant' as const, content: 'done' }],
+      provider: {
+        id: 'slot:default',
+        type: 'chat-completions' as const,
+        model: 'dialogue-generation',
+      },
+      usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+      finishReason: 'stop',
+      metadata: { source: 'phase5-test' },
+    }
+  })
 
   return provider
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<void> {
+  const start = Date.now()
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) throw new Error('waitFor timeout')
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
 }
 
 describe('Phase 5 Observatory Trace 集成测试', () => {
@@ -170,6 +213,11 @@ describe('Phase 5 Observatory Trace 集成测试', () => {
     installMockProvider(ctx)
     const send = vi.fn()
 
+    const triggerFired: Array<{ stimulusId: string }> = []
+    runtime.context.eventBus.on('behavior.trigger.fired', (payload) => {
+      triggerFired.push(payload)
+    })
+
     await ctx.receiveMessage({
       messageId: 'phase5-stimulus-1',
       id: 'session-1',
@@ -183,18 +231,35 @@ describe('Phase 5 Observatory Trace 集成测试', () => {
       send,
     })
 
-    const trace = ctx['elysia-ai-observatory'].service.getStimulusTrace('phase5-stimulus-1')
+    // 触发唤醒的合成刺激经同 habitat 队列异步处理，等待唤醒链完成。
+    await waitFor(() => triggerFired.length >= 1)
+    const wakeStimulusId = triggerFired[0].stimulusId
+    const observatory = ctx['elysia.observatory'].service
+    await waitFor(() => {
+      const wakeTrace = observatory.getStimulusTrace(wakeStimulusId)
+      return Boolean(wakeTrace?.events.some((event: any) => event.event === 'dialogue.completed'))
+    })
+
+    // 原始消息的 trace：入站 + 投影 + 事件入账。
+    // （behavior.trigger.fired 的 stimulusId 是合成触发刺激 id，落在唤醒 trace 上。）
+    const sourceTrace = observatory.getStimulusTrace('phase5-stimulus-1')
+    const sourceEvents = sourceTrace?.events.map((event: any) => event.event) ?? []
+    expect(sourceEvents).toContain('stimulus.received')
+    expect(sourceEvents).toContain('projection.routed')
+    expect(sourceEvents).toContain('cognition.event.recorded')
+
+    // 合成触发刺激的 trace：点火 → 唤醒 → 指令 → 对话（agentic）全链。
+    const trace = observatory.getStimulusTrace(wakeStimulusId)
     const events = trace?.events.map((event: any) => event.event) ?? []
 
     expect(events).toContain('stimulus.received')
+    expect(events).toContain('behavior.trigger.fired')
     expect(events).toContain('behavior.instruction')
     expect(events).toContain('dialogue.task.created')
     expect(events).toContain('dialogue.generation.requested')
     expect(events).toContain('brain.requested')
     expect(events).toContain('gateway.requested')
     expect(events).toContain('dialogue.output.created')
-    expect(events).toContain('sender.completed')
-    expect(events).toContain('body.message.sent')
 
     const output = trace?.events.find((event: any) => event.event === 'dialogue.output.created')
     expect(output?.outputId).toBeDefined()
@@ -204,13 +269,22 @@ describe('Phase 5 Observatory Trace 集成测试', () => {
   it('gateway 失败时应记录 gateway / brain / dialogue 失败 trace 且不记录发送成功', async () => {
     await installPipeline(ctx)
 
-    const gateway = ctx['elysia-ai-model-gateway']
+    const gateway = ctx['elysia.modelGateway']
     const provider = gateway.getRegistry().resolveSlot('default')
     provider.execute = vi.fn(async () => {
       throw new Error('phase5 gateway failure')
     })
 
     const send = vi.fn()
+
+    const triggerFired: Array<{ stimulusId: string }> = []
+    const dialogueFailed: Array<{ task: { sourceStimulusIds: string[] } }> = []
+    runtime.context.eventBus.on('behavior.trigger.fired', (payload) => {
+      triggerFired.push(payload as never)
+    })
+    runtime.context.eventBus.on('dialogue.failed', (payload) => {
+      dialogueFailed.push(payload as never)
+    })
 
     await ctx.receiveMessage({
       messageId: 'phase5-stimulus-2',
@@ -225,7 +299,10 @@ describe('Phase 5 Observatory Trace 集成测试', () => {
       send,
     })
 
-    const trace = ctx['elysia-ai-observatory'].service.getStimulusTrace('phase5-stimulus-2')
+    await waitFor(() => dialogueFailed.length >= 1)
+    const observatory = ctx['elysia.observatory'].service
+    // 失败链挂在合成触发刺激上（brain/gateway 请求的 sourceStimulusIds）。
+    const trace = observatory.getStimulusTrace(triggerFired[0].stimulusId)
     const events = trace?.events.map((event: any) => event.event) ?? []
 
     expect(events).toContain('gateway.failed')
@@ -244,7 +321,7 @@ describe('Phase 5 Observatory Trace 集成测试', () => {
     await runtime.context.eventBus.emit('runtime.stopping', { timestamp: 3 })
     await runtime.context.eventBus.emit('runtime.stopped', { timestamp: 4 })
 
-    const recent = ctx['elysia-ai-observatory'].service.getRecentEvents(10)
+    const recent = ctx['elysia.observatory'].service.getRecentEvents(10)
 
     expect(recent).toHaveLength(3)
     expect(recent.map((event: any) => event.event)).toEqual([
@@ -277,7 +354,7 @@ describe('Phase 5 Observatory Trace 集成测试', () => {
       error: circular,
     })
 
-    const trace = ctx['elysia-ai-observatory'].service.getStimulusTrace('phase5-sanitize')
+    const trace = ctx['elysia.observatory'].service.getStimulusTrace('phase5-sanitize')
     const event = trace?.events[0]
 
     expect(event?.event).toBe('gateway.failed')

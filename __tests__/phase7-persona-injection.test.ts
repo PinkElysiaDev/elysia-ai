@@ -7,6 +7,7 @@ import * as gatewayPlugin from '../packages/elysia-ai-model-gateway/src/index.js
 import * as brainPlugin from '../packages/elysia-ai-brain/src/index.js'
 import * as memoryPlugin from '../packages/elysia-ai-memory/src/index.js'
 import * as bondPlugin from '../packages/elysia-ai-bond/src/index.js'
+import * as cognitionPlugin from '../packages/elysia-ai-cognition/src/index.js'
 import * as behaviorPlugin from '../packages/elysia-ai-behavior/src/index.js'
 import * as dialoguePlugin from '../packages/elysia-ai-dialogue/src/index.js'
 import * as bodyPlugin from '../packages/elysia-ai-body/src/index.js'
@@ -16,7 +17,7 @@ function createMockKoishiContext(runtime: Runtime) {
   const disposeHandlers: Array<() => void> = []
 
   const ctx: any = {
-    'elysia-ai-runtime': runtime,
+    'elysia.runtime': runtime,
     logger() {
       return { info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn() }
     },
@@ -65,19 +66,33 @@ function installPipeline(ctx: any, brainSystemPrompt?: string) {
   })
   memoryPlugin.apply(ctx, { enabled: true, contextLimit: 5 })
   bondPlugin.apply(ctx, { enabled: true, contextLimit: 5 })
+  // cognition（事件注入层）先于 behavior 注册。
+  cognitionPlugin.apply(ctx, {
+    events: {
+      enabled: true,
+      feed: { maxEvents: 30 },
+      history: { maxEvents: 100, windowMs: 30 * 60_000 },
+    },
+  })
   behaviorPlugin.apply(ctx, {
     enableReply: true,
-    directWindowMs: 1500,
-    userBufferedWindowMs: 2500,
-    threadBufferedWindowMs: 3500,
-    habitatBufferedWindowMs: 5000,
+    batcher: {
+      quietWindowMs: 8_000,
+      dmQuietWindowMs: 1_500,
+      maxWaitMs: 30_000,
+      densityWindowMs: 10_000,
+      densityThreshold: 15,
+      // 单批 1 条即触发：消息到达后立即点火唤醒
+      maxBatch: 1,
+    },
+    packMemory: { maxPacks: 12, injectPacks: 2 },
   })
   dialoguePlugin.apply(ctx, { enabled: true, memoryLimit: 10 })
   bodyPlugin.apply(ctx, {})
 }
 
 function installMockProvider(ctx: any) {
-  const gateway = ctx['elysia-ai-model-gateway']
+  const gateway = ctx['elysia.modelGateway']
   const provider = gateway.getRegistry().resolveSlot('default')
   const capturedRequests: any[] = []
 
@@ -94,6 +109,14 @@ function installMockProvider(ctx: any) {
   })
 
   return { provider, capturedRequests }
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<void> {
+  const start = Date.now()
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) throw new Error('waitFor timeout')
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
 }
 
 async function sendMessage(ctx: any, patch: Partial<any> = {}) {
@@ -144,6 +167,7 @@ describe('Phase 7 Persona Injection integration tests', () => {
     const { capturedRequests } = installMockProvider(ctx)
 
     await sendMessage(ctx, { messageId: 'p7-stim-1', channelId: 'ch-1', userId: 'user-1' })
+    await waitFor(() => capturedRequests.length >= 1)
 
     expect(capturedRequests).toHaveLength(1)
     const systemMsg = capturedRequests[0].messages[0]
@@ -172,6 +196,7 @@ describe('Phase 7 Persona Injection integration tests', () => {
     const { capturedRequests } = installMockProvider(ctx)
 
     await sendMessage(ctx, { messageId: 'p7-stim-2', channelId: 'ch-2', userId: 'user-2' })
+    await waitFor(() => capturedRequests.length >= 1)
 
     expect(capturedRequests).toHaveLength(1)
     const systemMsg = capturedRequests[0].messages[0]
@@ -209,8 +234,15 @@ describe('Phase 7 Persona Injection integration tests', () => {
     const { capturedRequests } = installMockProvider(ctx)
 
     await sendMessage(ctx, { messageId: 'p7-stim-multi', channelId: 'ch-3', userId: 'user-3' })
+    // 每个 life 各自点火唤醒；合成触发刺激路由到全部 active life，
+    // 因此每个 life 都会用自己的人格发起对话请求。
+    await waitFor(() => {
+      const prompts = capturedRequests.map((request) => request.messages[0].content as string)
+      return prompts.some((prompt) => prompt.includes('You are Alice'))
+        && prompts.some((prompt) => prompt.includes('You are Bob'))
+    })
 
-    expect(capturedRequests).toHaveLength(2)
+    expect(capturedRequests.length).toBeGreaterThanOrEqual(2)
     const prompts = capturedRequests.map((request) => request.messages[0].content)
     expect(prompts.some((prompt) => prompt.includes('You are Alice'))).toBe(true)
     expect(prompts.some((prompt) => prompt.includes('You are Bob'))).toBe(true)

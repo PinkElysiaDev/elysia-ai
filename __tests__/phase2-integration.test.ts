@@ -2,7 +2,7 @@
  * Phase 2 集成测试
  *
  * 验证以下完整链路：
- * 1. 行为引擎 / stimulus.received → behavior.selected → behavior.instruction
+ * 1. 行为引擎 / stimulus → cognition 事件入账；触发唤醒 → behavior.instruction
  * 2. Brain 层正确封装 system prompt / context window
  * 3. Gateway 容错（retry）
  * 4. 事件驱动解耦（所有模块通过 event bus 协作）
@@ -14,6 +14,7 @@ import { createDefaultRuntime } from '../packages/elysia-ai-runtime/src/runtime.
 import type { Runtime } from '../packages/elysia-ai-runtime/src/runtime.js'
 import { DefaultBrainService } from '../packages/@elysia-ai/brain/src/index.js'
 import { DefaultModelGatewayService } from '../packages/@elysia-ai/model-gateway/src/index.js'
+import * as cognitionPlugin from '../packages/elysia-ai-cognition/src/index.js'
 import * as behaviorPlugin from '../packages/elysia-ai-behavior/src/index.js'
 import type {
   ModelGatewayResponse,
@@ -52,7 +53,7 @@ function makeMockKoishiContext(runtime: Runtime) {
   const disposeHandlers: Array<() => void> = []
 
   const ctx = {
-    'elysia-ai-runtime': runtime,
+    'elysia.runtime': runtime,
     logger() {
       return { info: vi.fn(), debug: vi.fn(), error: vi.fn() }
     },
@@ -71,14 +72,25 @@ function listenEvents(runtime: Runtime) {
   const events: Record<string, any[]> = {}
   const bus = runtime.context.eventBus as any
 
-  bus.on('behavior.selected', (payload: any) => {
-    ;(events['behavior.selected'] ??= []).push(payload)
+  bus.on('cognition.event.recorded', (payload: any) => {
+    ;(events['cognition.event.recorded'] ??= []).push(payload)
+  })
+  bus.on('behavior.trigger.fired', (payload: any) => {
+    ;(events['behavior.trigger.fired'] ??= []).push(payload)
   })
   bus.on('behavior.instruction', (payload: any) => {
     ;(events['behavior.instruction'] ??= []).push(payload)
   })
 
   return events
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 5000): Promise<void> {
+  const start = Date.now()
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) throw new Error('waitFor timeout')
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
 }
 
 // ─────────────────────────────────────────────────
@@ -95,12 +107,25 @@ describe('Phase 2 集成测试', () => {
     beforeEach(async () => {
       runtime = createDefaultRuntime()
       koishiCtx = makeMockKoishiContext(runtime)
+      // cognition（事件注入层）先于 behavior 注册：behavior 依赖 elysia.cognition 服务。
+      cognitionPlugin.apply(koishiCtx, {
+        events: {
+          enabled: true,
+          feed: { maxEvents: 30 },
+          history: { maxEvents: 100, windowMs: 30 * 60_000 },
+        },
+      })
       behaviorPlugin.apply(koishiCtx, {
         enableReply: true,
-        directWindowMs: 1500,
-        userBufferedWindowMs: 2500,
-        threadBufferedWindowMs: 3500,
-        habitatBufferedWindowMs: 5000,
+        batcher: {
+          quietWindowMs: 8_000,
+          dmQuietWindowMs: 1_500,
+          maxWaitMs: 30_000,
+          densityWindowMs: 10_000,
+          densityThreshold: 15,
+          maxBatch: 50,
+        },
+        packMemory: { maxPacks: 12, injectPacks: 2 },
       })
       await runtime.start()
       await runtime.loadManifest({
@@ -114,7 +139,7 @@ describe('Phase 2 集成测试', () => {
       if (runtime.getState() === 'running') await runtime.stop()
     })
 
-    it('stimulus.received 应驱动 behavior.selected → behavior.instruction', async () => {
+    it('stimulus 入账 cognition 事件；触发唤醒驱动 behavior.instruction', async () => {
       const events = listenEvents(runtime)
 
       const stimulus = {
@@ -132,14 +157,35 @@ describe('Phase 2 集成测试', () => {
       // 不再驱动认知/行为（阶段钩子由管线调度）。
       await runtime.receiveStimulus(stimulus as never)
 
-      await new Promise((r) => setTimeout(r, 100))
+      await new Promise((resolve) => setTimeout(resolve, 100))
 
-      expect(events['behavior.selected'] ?? []).toHaveLength(1)
-      expect(events['behavior.instruction'] ?? []).toHaveLength(1)
+      // 触发器重构后：普通刺激只进事件历史（cognition.event.recorded），
+      // 不直接唤醒 LLM（不产生 behavior.instruction）。
+      expect(events['cognition.event.recorded'] ?? []).toHaveLength(1)
+      expect(events['cognition.event.recorded'][0].lifeId).toBe('life-test')
+      expect(events['behavior.instruction'] ?? []).toHaveLength(0)
+
+      // 触发唤醒（behavior 服务统一入口）→ 合成触发刺激走完整主链 →
+      // behavior.trigger.fired → behavior.instruction。
+      const behavior = (koishiCtx as any).get('elysia.behavior')
+      expect(behavior).toBeTruthy()
+      behavior.fireTrigger({
+        lifeId: 'life-test',
+        habitatId: 'habitat-test',
+        source: 'manual',
+        reason: 'phase2-manual',
+      })
+
+      await waitFor(() => (events['behavior.instruction'] ?? []).length >= 1)
+
+      expect(events['behavior.trigger.fired'] ?? []).toHaveLength(1)
+      expect(events['behavior.trigger.fired'][0].source).toBe('manual')
 
       const instruction = events['behavior.instruction'][0].instruction
+      expect(instruction.lifeId).toBe('life-test')
       expect(instruction.actions).toBeDefined()
       expect(Array.isArray(instruction.actions)).toBe(true)
+      expect(instruction.actions[0].type).toBe('dialogue')
     })
   })
 
@@ -242,9 +288,10 @@ describe('Phase 2 集成测试', () => {
       provider.execute = vi.fn(async () => {
         calls++
         if (calls < 3) {
-          const err = new Error('test 500')
-          ;(err as any).statusCode = 500
-          throw err
+          // P2-10 后重试白名单化：真实 provider 对 HTTP 500 抛 ProviderError
+          //（statusCode 500 默认 retryable），裸 Error 不再可重试。
+          const { ProviderError } = await import('../packages/@elysia-ai/model-gateway/src/providers/types.js')
+          throw new ProviderError('test 500', 'slot:test', 500)
         }
         return makeMockProviderResponse('slot:test', 'retry ok')
       })

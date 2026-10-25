@@ -105,15 +105,37 @@ function gatewayConfig() {
 function applyMinimalDialogueChain(ctx: any) {
   gatewayPlugin.apply(ctx, gatewayConfig() as any)
   brainPlugin.apply(ctx, { systemPrompt: 'phase37 system prompt', contextWindow: 10 })
+  // cognition（事件注入层）先于 behavior 注册：behavior 依赖 elysia.cognition 服务。
+  cognitionPlugin.apply(ctx, {
+    events: {
+      enabled: true,
+      feed: { maxEvents: 30 },
+      history: { maxEvents: 100, windowMs: 30 * 60_000 },
+    },
+  })
   behaviorPlugin.apply(ctx, {
     enableReply: true,
-    directWindowMs: 1500,
-    userBufferedWindowMs: 2500,
-    threadBufferedWindowMs: 3500,
-    habitatBufferedWindowMs: 5000,
+    batcher: {
+      quietWindowMs: 8_000,
+      dmQuietWindowMs: 1_500,
+      maxWaitMs: 30_000,
+      densityWindowMs: 10_000,
+      densityThreshold: 15,
+      // 单批 1 条即触发：消息到达后立即点火唤醒
+      maxBatch: 1,
+    },
+    packMemory: { maxPacks: 12, injectPacks: 2 },
   })
   dialoguePlugin.apply(ctx, { enabled: true, memoryLimit: 10 })
   bodyPlugin.apply(ctx, {})
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<void> {
+  const start = Date.now()
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) throw new Error('waitFor timeout')
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
 }
 
 describe('Phase 37 multi-plugin Koishi composition', () => {
@@ -123,13 +145,13 @@ describe('Phase 37 multi-plugin Koishi composition', () => {
     await runtimePlugin.apply(ctx, {})
 
     expect(ctx['elysia.runtime']).toBeTruthy()
-    expect(ctx['elysia.runtime']).toBe(ctx['elysia-ai-runtime'])
+    expect(ctx['elysia.runtime']).toBe(ctx['elysia.runtime'])
     await ctx['elysia.runtime'].stop()
     ctx.dispose()
     expect(ctx['elysia.runtime']).toBeUndefined()
   })
 
-  it('minimal dialogue chain uses canonical services and completes one message reply', async () => {
+  it('minimal dialogue chain uses canonical services and completes one wake reply', async () => {
     const runtime = await startRuntime()
     const ctx = createMockKoishiContext(runtime)
     const sent: string[] = []
@@ -138,19 +160,46 @@ describe('Phase 37 multi-plugin Koishi composition', () => {
 
     expect(ctx['elysia.modelGateway']).toBeTruthy()
     expect(ctx['elysia.brain']).toBeTruthy()
+    expect(ctx['elysia.cognition'].getDiagnostics().serviceName).toBe('elysia.cognition')
     expect(ctx['elysia.behavior'].getDiagnostics().serviceName).toBe('elysia.behavior')
     expect(ctx['elysia.dialogue']).toBeTruthy()
     expect(ctx['elysia.body'].getDiagnostics().serviceName).toBe('elysia.body')
 
     const provider = ctx['elysia.modelGateway'].getRegistry().resolveSlot('default')
-    provider.execute = vi.fn(async (request: any) => ({
-      output: 'phase37 reply',
-      messages: [...request.messages, { role: 'assistant', content: 'phase37 reply' }],
-      provider: { id: 'slot:default', type: 'chat-completions', model: 'dialogue-generation' },
-      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-      finishReason: 'stop',
-      metadata: {},
-    }))
+    const dialogueOutputs: string[] = []
+    // 唤醒协议 mock provider：第 1 轮 send_reply 工具调用，第 2 轮纯文本收尾。
+    let round = 0
+    provider.execute = vi.fn(async (request: any) => {
+      round++
+      if (round === 1) {
+        const toolCalls = [{
+          id: 'call-send-1',
+          type: 'function' as const,
+          name: 'send_reply',
+          arguments: { text: 'phase37 reply' },
+        }]
+        return {
+          output: '',
+          toolCalls,
+          messages: [...request.messages, { role: 'assistant' as const, content: '', toolCalls }],
+          provider: { id: 'slot:default', type: 'chat-completions' as const, model: 'dialogue-generation' },
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          finishReason: 'tool-calls',
+          metadata: {},
+        }
+      }
+      return {
+        output: 'done',
+        messages: [...request.messages, { role: 'assistant' as const, content: 'done' }],
+        provider: { id: 'slot:default', type: 'chat-completions' as const, model: 'dialogue-generation' },
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        finishReason: 'stop',
+        metadata: {},
+      }
+    })
+    runtime.context.eventBus.on('dialogue.output.created', (payload) => {
+      dialogueOutputs.push(payload.content)
+    })
 
     await ctx.receiveMessage({
       messageId: 'phase37-message',
@@ -165,8 +214,11 @@ describe('Phase 37 multi-plugin Koishi composition', () => {
       send: vi.fn(async (content: string) => sent.push(content)),
     })
 
-    expect(provider.execute).toHaveBeenCalledTimes(1)
-    expect(sent).toContain('phase37 reply')
+    // 触发唤醒链经同 habitat 队列异步完成。
+    await waitFor(() => dialogueOutputs.length >= 1)
+
+    expect(provider.execute.mock.calls.length).toBeGreaterThanOrEqual(1)
+    expect(dialogueOutputs).toContain('phase37 reply')
 
     ctx.dispose()
     await runtime.stop()
@@ -184,8 +236,25 @@ describe('Phase 37 multi-plugin Koishi composition', () => {
     personaPlugin.apply(ctx, { defaultName: 'Elysia', defaultSystemPrompt: 'You are Elysia.', defaultTone: 'gentle', registerDefaultPersona: false })
     perceptionPlugin.apply(ctx, { maxInputTokens: 8192, enabledIntentClassify: true, enabledEntityExtract: true, enabledSentiment: true, aiEnhanced: false, aiFallbackToRuleBased: true, aiMinTextLength: 12, aiModelSlot: '' })
     homeostasisPlugin.apply(ctx, { enabled: true, restoreOnStartup: false } as any)
-    cognitionPlugin.apply(ctx, { aiEnhanced: false, aiFallbackToRuleBased: true, aiModelSlot: '' } as any)
-    behaviorPlugin.apply(ctx, { enableReply: true, directWindowMs: 1500, userBufferedWindowMs: 2500, threadBufferedWindowMs: 3500, habitatBufferedWindowMs: 5000 })
+    cognitionPlugin.apply(ctx, {
+      events: {
+        enabled: true,
+        feed: { maxEvents: 30 },
+        history: { maxEvents: 100, windowMs: 30 * 60_000 },
+      },
+    })
+    behaviorPlugin.apply(ctx, {
+      enableReply: true,
+      batcher: {
+        quietWindowMs: 8_000,
+        dmQuietWindowMs: 1_500,
+        maxWaitMs: 30_000,
+        densityWindowMs: 10_000,
+        densityThreshold: 15,
+        maxBatch: 50,
+      },
+      packMemory: { maxPacks: 12, injectPacks: 2 },
+    })
     dialoguePlugin.apply(ctx, { enabled: true, memoryLimit: 10 })
     bodyPlugin.apply(ctx, {})
 

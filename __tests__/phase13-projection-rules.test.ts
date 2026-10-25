@@ -6,7 +6,7 @@
  * 2. 有规则时按 habitat/channel 等字段精确匹配
  * 3. 命中结果按 priority 排序
  * 4. disabled rule 不生效
- * 5. projection rules 能限制 behavior 主链只进入匹配 life
+ * 5. projection rules 限制主链（cognition 事件入账 / behavior 事件累积）只进入匹配 life
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -17,6 +17,7 @@ import type {
   CoreEventMap,
   Stimulus,
 } from '../packages/@elysia-ai/core/src/index.js'
+import * as cognitionPlugin from '../packages/elysia-ai-cognition/src/index.js'
 import * as behaviorPlugin from '../packages/elysia-ai-behavior/src/index.js'
 
 function createMockKoishiContext(runtime: Runtime) {
@@ -24,7 +25,7 @@ function createMockKoishiContext(runtime: Runtime) {
   const disposeHandlers: Array<() => void> = []
 
   const ctx: any = {
-    'elysia-ai-runtime': runtime,
+    'elysia.runtime': runtime,
 
     logger() {
       return {
@@ -54,13 +55,28 @@ function createMockKoishiContext(runtime: Runtime) {
   return asCordisContext(ctx)
 }
 
+function installCognitionPipeline(ctx: any) {
+  cognitionPlugin.apply(ctx, {
+    events: {
+      enabled: true,
+      feed: { maxEvents: 30 },
+      history: { maxEvents: 100, windowMs: 30 * 60_000 },
+    },
+  })
+}
+
 function installBehaviorPipeline(ctx: any) {
   behaviorPlugin.apply(ctx, {
     enableReply: true,
-    directWindowMs: 1500,
-    userBufferedWindowMs: 2500,
-    threadBufferedWindowMs: 3500,
-    habitatBufferedWindowMs: 5000,
+    batcher: {
+      quietWindowMs: 8_000,
+      dmQuietWindowMs: 1_500,
+      maxWaitMs: 30_000,
+      densityWindowMs: 10_000,
+      densityThreshold: 15,
+      maxBatch: 50,
+    },
+    packMemory: { maxPacks: 12, injectPacks: 2 },
   })
 }
 
@@ -255,13 +271,15 @@ describe('Phase 13 Projection Rules 集成测试', () => {
     runtime = createDefaultRuntime()
     await runtime.start()
     ctx = createMockKoishiContext(runtime)
+    // cognition（事件注入层）先于 behavior 注册：behavior 依赖 elysia.cognition 服务。
+    installCognitionPipeline(ctx)
     installBehaviorPipeline(ctx)
 
-    const selectedEvents: CoreEventMap['behavior.selected'][] = []
+    const recordedEvents: CoreEventMap['cognition.event.recorded'][] = []
     const instructionEvents: CoreEventMap['behavior.instruction'][] = []
 
-    runtime.context.eventBus.on('behavior.selected', (payload) => {
-      selectedEvents.push(payload)
+    runtime.context.eventBus.on('cognition.event.recorded', (payload) => {
+      recordedEvents.push(payload)
     })
     runtime.context.eventBus.on('behavior.instruction', (payload) => {
       instructionEvents.push(payload)
@@ -303,10 +321,13 @@ describe('Phase 13 Projection Rules 集成测试', () => {
 
     await runtime.receiveStimulus(createStimulus('p13-behavior', 'channel-phase13-a'))
 
-    expect(selectedEvents).toHaveLength(1)
-    expect(selectedEvents[0].lifeId).toBe('life-behavior-matched')
+    // 触发器重构后：普通刺激只进 cognition 事件历史与 behavior 密度合并器，
+    // 主链按 projection routing 只进入匹配 life（cognition 事件只入匹配 life 的账）。
+    expect(recordedEvents).toHaveLength(1)
+    expect(recordedEvents[0].lifeId).toBe('life-behavior-matched')
+    expect(recordedEvents[0].stimulusId).toBe('p13-behavior')
 
-    expect(instructionEvents).toHaveLength(1)
-    expect(instructionEvents[0].instruction.lifeId).toBe('life-behavior-matched')
+    // 普通刺激不直接唤醒 LLM：不产生 behavior.instruction。
+    expect(instructionEvents).toHaveLength(0)
   })
 })

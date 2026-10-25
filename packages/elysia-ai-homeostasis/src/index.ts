@@ -5,7 +5,7 @@ import type { CoreEventMap, EventBus, HomeostasisService, HomeostasisState, Life
 import { createElysiaPlugin } from '@elysia-ai/shared'
 export * from '@elysia-ai/homeostasis'
 
-type HomeostasisDynamicsConfig = Pick<HomeostasisConfig, 'initialEnergy' | 'initialMood' | 'initialSociability' | 'initialCuriosity' | 'energyDecayPerTick' | 'moodDecayPerTick' | 'sociabilityDecayPerTick' | 'curiosityDecayPerTick' | 'energyBaseline' | 'moodBaseline' | 'sociabilityBaseline' | 'curiosityBaseline' | 'recoveryFactor' | 'maxValue' | 'minValue' | 'responseThresholdMin' | 'responseThresholdMax'>
+type HomeostasisDynamicsConfig = Pick<HomeostasisConfig, 'initialEnergy' | 'initialMood' | 'initialSociability' | 'initialCuriosity' | 'energyDecayPerTick' | 'moodDecayPerTick' | 'sociabilityDecayPerTick' | 'curiosityDecayPerTick' | 'energyBaseline' | 'moodBaseline' | 'sociabilityBaseline' | 'curiosityBaseline' | 'recoveryFactor' | 'maxValue' | 'minValue'>
 type HomeostasisPluginConfig = Omit<HomeostasisConfig, keyof HomeostasisDynamicsConfig> & {
   dynamics?: HomeostasisDynamicsConfig
 }
@@ -35,8 +35,6 @@ export const Config: Schema<HomeostasisPluginConfig> = Schema.object({
       .description('低于基线时的恢复速率相对衰减速率的倍率（空闲恢复通常更慢）。'),
     maxValue: Schema.number().default(1.0).description('各状态指标的上限。'),
     minValue: Schema.number().default(0.0).description('各状态指标的下限。'),
-    responseThresholdMin: Schema.number().default(0.3).description('回应阈值下限。'),
-    responseThresholdMax: Schema.number().default(0.8).description('回应阈值上限。'),
   }).description('高级：稳态调参').collapse(),
 })
 
@@ -52,7 +50,6 @@ export const apply = createElysiaPlugin<
 >({
   name: 'elysia-ai-homeostasis',
   serviceFormalName: 'elysia.homeostasis',
-  serviceLegacyName: 'elysia-ai-homeostasis',
   // kernel 兼容治理：声明身份/服务/阶段，runtime.start() 统一校验。
   manifest: {
     name: 'elysia-ai-homeostasis',

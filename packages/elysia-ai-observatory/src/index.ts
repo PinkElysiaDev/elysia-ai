@@ -33,26 +33,26 @@ type ObservatoryLike = DiagnosticsLike & {
   service?: { getOperationalSnapshot?: () => unknown, getRepositoryAnalytics?: () => unknown, getGatewayAnalytics?: () => unknown }
 }
 
-function getService<T>(ctx: Context, formalName: string, legacyName?: string): T | undefined {
-  return getOptionalElysiaService<T>(ctx, { formalName, legacyName })
+function getService<T>(ctx: Context, formalName: string): T | undefined {
+  return getOptionalElysiaService<T>(ctx, { formalName })
 }
 
 function formatLoadedStatus(ctx: Context): string {
   // 单一事实来源：@elysia-ai/core 的 ELYSIA_SERVICES 常量表
-  // （新增服务/legacy 别名不再需要同步维护此处的硬编码列表）。
+  // （新增服务不再需要同步维护此处的硬编码列表）。
   const services = ELYSIA_SERVICES
 
   const lines = ['Elysia A.I. Status']
   let loadedCount = 0
-  for (const { layer: label, formalName, legacyName } of services) {
-    const service = getService<DiagnosticsLike>(ctx, formalName, legacyName)
+  for (const { layer: label, formalName } of services) {
+    const service = getService<DiagnosticsLike>(ctx, formalName)
     if (service) loadedCount++
     const diagnostics = service?.getDiagnostics?.()
     const ready = diagnostics?.ready === undefined ? Boolean(service) : diagnostics.ready
     lines.push(`- ${label}: ${service ? 'loaded' : 'not loaded'}${service ? `, ready: ${ready}` : ''}`)
   }
 
-  const observatory = getService<ObservatoryLike>(ctx, 'elysia.observatory', 'elysia-ai-observatory')
+  const observatory = getService<ObservatoryLike>(ctx, 'elysia.observatory')
   const snapshot = observatory?.getOperationalSnapshot?.() ?? observatory?.service?.getOperationalSnapshot?.()
   const failureCount = typeof snapshot === 'object' && snapshot && 'failureCount' in snapshot ? (snapshot as any).failureCount : 0
   lines.splice(1, 0, `loadedServices: ${loadedCount}/${services.length}`, `recentFailures: ${failureCount}`)
@@ -60,7 +60,7 @@ function formatLoadedStatus(ctx: Context): string {
 }
 
 function formatGatewayStatus(ctx: Context): string {
-  const gateway = getService<any>(ctx, 'elysia.modelGateway', 'elysia-ai-model-gateway')
+  const gateway = getService<any>(ctx, 'elysia.modelGateway')
   if (!gateway) return 'Model gateway service not loaded.'
 
   const registry = typeof gateway.getRegistry === 'function' ? gateway.getRegistry() : undefined
@@ -75,7 +75,7 @@ function formatGatewayStatus(ctx: Context): string {
 }
 
 function formatRepositoryStatus(ctx: Context): string {
-  const observatory = getService<ObservatoryLike>(ctx, 'elysia.observatory', 'elysia-ai-observatory')
+  const observatory = getService<ObservatoryLike>(ctx, 'elysia.observatory')
   const analytics = observatory?.service?.getRepositoryAnalytics?.() ?? (observatory?.getOperationalSnapshot?.() as any)?.repositoryAnalytics
   if (!analytics) return 'Repository analytics not loaded. Please enable elysia-ai-observatory.'
 
@@ -136,7 +136,7 @@ function registerOperationalCommands(ctx: Context) {
 
   command.call(ctx, 'elysia.trace.recent [stimulusId]', 'Elysia A.I. recent pipeline traces', { authority: 3 })
     .action((_argv: unknown, stimulusId?: string) => {
-      const observatory = getService<ObservatoryLike>(ctx, 'elysia.observatory', 'elysia-ai-observatory')
+      const observatory = getService<ObservatoryLike>(ctx, 'elysia.observatory')
       const traces = observatory?.getRecentTraces?.(stimulusId ? { stimulusId } : {}) ?? []
       if (traces.length === 0) return stimulusId ? `No traces for stimulus ${stimulusId}.` : 'No recent traces.'
       return traces.map((trace) => {
@@ -158,7 +158,6 @@ export function apply(ctx: Context, config: ObservatoryConfig) {
   const logger = ctx.logger('elysia-ai-observatory')
   const runtime = getRequiredElysiaService<{ context: { eventBus: EventBus<CoreEventMap> } }>(ctx, {
     formalName: 'elysia.runtime',
-    legacyName: 'elysia-ai-runtime',
     logger,
     plugin: 'elysia-ai-observatory',
     description: 'runtime event bus',
@@ -178,7 +177,6 @@ export function apply(ctx: Context, config: ObservatoryConfig) {
 
   registerElysiaService(ctx, {
     formalName: 'elysia.observatory',
-    legacyName: 'elysia-ai-observatory',
     service: observatoryRuntime.service,
     logger,
     plugin: 'elysia-ai-observatory',

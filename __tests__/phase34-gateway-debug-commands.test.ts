@@ -30,7 +30,7 @@ function createCommandRecordingContext(observatory?: any) {
   }
 
   const ctx: any = {
-    'elysia-ai-runtime': {
+    'elysia.runtime': {
       context: {
         eventBus,
       },
@@ -59,7 +59,7 @@ function createCommandRecordingContext(observatory?: any) {
   }
 
   if (observatory) {
-    ctx['elysia-ai-observatory'] = observatory
+    ctx['elysia.observatory'] = observatory
   }
 
   return { ctx: asCordisContext(ctx), commands, eventBus }
@@ -160,7 +160,7 @@ describe('Phase 34 Gateway Debug Commands', () => {
 
     apply(ctx, createGatewayConfig())
 
-    const gateway = ctx['elysia-ai-model-gateway']
+    const gateway = ctx['elysia.modelGateway']
     const provider = gateway.getRegistry().resolveSlot('fast')!
     provider.execute = vi.fn(async () => ({
       output: 'ok',

@@ -26,7 +26,6 @@ export const apply = createElysiaPlugin<
 >({
   name: 'elysia-ai-persona',
   serviceFormalName: 'elysia.persona',
-  serviceLegacyName: 'elysia-ai-persona',
   // kernel 兼容治理：声明身份/服务/阶段，runtime.start() 统一校验。
   manifest: {
     name: 'elysia-ai-persona',

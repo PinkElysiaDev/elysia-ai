@@ -65,8 +65,6 @@ export * from './store/memory-state-repository.js'
 export * from './store/mongo-state-repository.js'
 export * from './store/runtime-state-repository.js'
 export * from './store/mongo-runtime-repositories.js'
-export * from './scheduler/index.js'
-export * from './scheduler/mongo-scheduled-task-repository.js'
 export * from './behavior-execution/index.js'
 export * from './homeostasis/index.js'
 export * from './lifecycle/index.js'
@@ -82,9 +80,7 @@ export * from './persistence-service.js'
 declare module 'koishi' {
   interface Context {
     'elysia.runtime'?: Runtime
-    'elysia-ai-runtime'?: Runtime
     'elysia.persistence'?: PersistenceService
-    'elysia-ai-persistence'?: PersistenceService
   }
 }
 
@@ -136,9 +132,10 @@ export async function apply(ctx: Context, config: Config) {
     return
   }
 
-  // mongo 模式下把调度任务 / 投影规则也切到 Mongo 仓储（P0-3）：
-  // 此前只有 homeostasis 状态走 Mongo，followup 任务与投影规则始终留在
-  // 内存仓储——重启即丢，与"配置 mongo 即持久化"的语义不符。
+  // mongo 模式下把投影规则也切到 Mongo 仓储（P0-3）：
+  // 此前只有 homeostasis 状态走 Mongo，投影规则始终留在内存仓储——
+  // 重启即丢，与"配置 mongo 即持久化"的语义不符。
+  // （followup 调度任务仓储已随 SchedulerService 退役移除。）
   const mongoConnection = stateRepositorySetup.mongoConnection
   const mongoRepositories = mongoConnection
     ? createMongoRuntimeRepositories(mongoConnection)
@@ -147,7 +144,7 @@ export async function apply(ctx: Context, config: Config) {
     try {
       await mongoRepositories.ensureIndexes()
     } catch (error) {
-      logger.warn('failed to ensure mongo indexes for scheduled tasks / projection rules', {
+      logger.warn('failed to ensure mongo indexes for projection rules', {
         plugin: 'elysia-ai-runtime',
         phase: 'state-repository',
         error: String(error),
@@ -158,7 +155,6 @@ export async function apply(ctx: Context, config: Config) {
   const runtime = createDefaultRuntime({
     logger: runtimeLogger,
     stateRepository: stateRepositorySetup.repository,
-    scheduledTaskRepository: mongoRepositories?.scheduledTaskRepository,
     projectionRuleRepository: mongoRepositories?.projectionRuleRepository,
   })
 
@@ -172,7 +168,6 @@ export async function apply(ctx: Context, config: Config) {
 
   registerElysiaService(ctx, {
     formalName: 'elysia.runtime',
-    legacyName: 'elysia-ai-runtime',
     service: runtime,
     logger: runtimeLogger,
     plugin: 'elysia-ai-runtime',
@@ -188,7 +183,6 @@ export async function apply(ctx: Context, config: Config) {
   )
   registerElysiaService(ctx, {
     formalName: 'elysia.persistence',
-    legacyName: 'elysia-ai-persistence',
     service: persistenceService,
     logger: runtimeLogger,
     plugin: 'elysia-ai-runtime',
