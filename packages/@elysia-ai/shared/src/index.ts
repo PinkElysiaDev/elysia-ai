@@ -54,15 +54,15 @@ export { MongoDocRepository } from './mongo-doc-repository.js'
 export type {
   MongoCursorLike,
   MongoDocLikeCollection,
+  MongoFindOptions,
   MongoIndexSpec,
   MongoDocRepositoryConfig,
 } from './mongo-doc-repository.js'
 
-export { connectMongo, lazyMongoCollection } from './mongo-connector.js'
+export { connectMongo } from './mongo-connector.js'
 export type {
   MongoConnectionConfig,
   MongoClientLike,
   MongoConnectorDependencies,
   MongoConnection,
-  LazyMongoCollection,
 } from './mongo-connector.js'

@@ -78,9 +78,6 @@ export function splitPipelinePhases(stages: PipelineStage[] = ELYSIA_PIPELINE_ST
   return splitStageOrder(sortStages(stages))
 }
 
-/** 兼容导出（派生自阶段表；动态切分请优先用 splitPipelinePhases）。 */
-export const STIMULUS_PHASE_STAGES = splitPipelinePhases().stimulusPhase
-export const LIFE_PHASE_STAGES = splitPipelinePhases().lifePhase
 
 /** 刺激段上下文载体。 */
 export interface StimulusPhaseCore {
@@ -96,7 +93,6 @@ export interface LifePhaseCore {
 
 /** 主链插件写上下文用的命名空间常量（read 端请用同一常量）。 */
 export const NS_PERCEPTION = 'perception'
-export const NS_COGNITION = 'cognition'
 export const NS_BEHAVIOR = 'behavior'
 export const NS_DIALOGUE = 'dialogue'
 /** dialogue 阶段累积写入的输出列表（sender 阶段逐条发送；兜底路径走 dialogue.output.created 事件）。 */
@@ -108,10 +104,8 @@ export const NS_DIALOGUE_OUTPUT = 'dialogue-output'
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface ElysiaServiceDescriptor {
-  /** cordis 正式服务 id。 */
+  /** cordis 服务 id（单名注册；Phase 36 前的 elysia-ai-* 旧名兼容层已于 2026-10 移除）。 */
   formalName: string
-  /** 兼容别名（Phase 36 之前的名字）。 */
-  legacyName: string
   /** 所属层。 */
   layer: string
   /** 中文描述。 */
@@ -119,23 +113,23 @@ export interface ElysiaServiceDescriptor {
 }
 
 export const ELYSIA_SERVICES: readonly ElysiaServiceDescriptor[] = [
-  { formalName: 'elysia.runtime', legacyName: 'elysia-ai-runtime', layer: 'runtime', description: '运行时内核（同时提供 elysia.persistence）' },
-  { formalName: 'elysia.persistence', legacyName: 'elysia-ai-persistence', layer: 'runtime', description: '持久化集合服务' },
-  { formalName: 'elysia.body', legacyName: 'elysia-ai-body', layer: 'body', description: '消息输入输出桥接' },
-  { formalName: 'elysia.perception', legacyName: 'elysia-ai-perception', layer: 'perception', description: '刺激感知分析' },
-  { formalName: 'elysia.homeostasis', legacyName: 'elysia-ai-homeostasis', layer: 'homeostasis', description: '内稳态状态' },
-  { formalName: 'elysia.cognition', legacyName: 'elysia-ai-cognition', layer: 'cognition', description: '显著性与价值评估' },
-  { formalName: 'elysia.persona', legacyName: 'elysia-ai-persona', layer: 'persona', description: '人格注册表' },
-  { formalName: 'elysia.behavior', legacyName: 'elysia-ai-behavior', layer: 'behavior', description: '行为决策与执行' },
-  { formalName: 'elysia.dialogue', legacyName: 'elysia-ai-dialogue', layer: 'dialogue', description: '对话编排' },
-  { formalName: 'elysia.brain', legacyName: 'elysia-ai-brain', layer: 'brain', description: '模型调用大脑' },
-  { formalName: 'elysia.modelGateway', legacyName: 'elysia-ai-model-gateway', layer: 'model-gateway', description: '模型网关' },
-  { formalName: 'elysia.memory', legacyName: 'elysia-ai-memory', layer: 'memory', description: '记忆服务' },
-  { formalName: 'elysia.bond', legacyName: 'elysia-ai-bond', layer: 'bond', description: '关系服务' },
-  { formalName: 'elysia.observatory', legacyName: 'elysia-ai-observatory', layer: 'observatory', description: '观测服务' },
+  { formalName: 'elysia.runtime', layer: 'runtime', description: '运行时内核（同时提供 elysia.persistence）' },
+  { formalName: 'elysia.persistence', layer: 'runtime', description: '持久化集合服务' },
+  { formalName: 'elysia.body', layer: 'body', description: '消息输入输出桥接' },
+  { formalName: 'elysia.perception', layer: 'perception', description: '刺激感知分析' },
+  { formalName: 'elysia.homeostasis', layer: 'homeostasis', description: '内稳态状态' },
+  { formalName: 'elysia.cognition', layer: 'cognition', description: '事件注入层（events 变量数据源）' },
+  { formalName: 'elysia.persona', layer: 'persona', description: '人格注册表' },
+  { formalName: 'elysia.behavior', layer: 'behavior', description: '行动层（三层分发+定时触发器）' },
+  { formalName: 'elysia.dialogue', layer: 'dialogue', description: '对话编排' },
+  { formalName: 'elysia.brain', layer: 'brain', description: '模型调用大脑' },
+  { formalName: 'elysia.modelGateway', layer: 'model-gateway', description: '模型网关' },
+  { formalName: 'elysia.memory', layer: 'memory', description: '记忆服务' },
+  { formalName: 'elysia.bond', layer: 'bond', description: '关系服务' },
+  { formalName: 'elysia.observatory', layer: 'observatory', description: '观测服务' },
 ]
 
-/** 全部已知服务 id（formal + legacy），供 manifest 校验等场景。 */
-export const KNOWN_ELYSIA_SERVICE_IDS: readonly string[] = ELYSIA_SERVICES.flatMap(
-  (service) => [service.formalName, service.legacyName],
+/** 全部已知服务 id，供 manifest 校验等场景。 */
+export const KNOWN_ELYSIA_SERVICE_IDS: readonly string[] = ELYSIA_SERVICES.map(
+  (service) => service.formalName,
 )

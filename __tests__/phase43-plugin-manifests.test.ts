@@ -49,7 +49,7 @@ describe('Phase 43 插件 manifest 声明完整性', () => {
   })
 
   it('全部 manifest 引用的服务存在于 ELYSIA_SERVICES（validate 不产生 error 的前提）', () => {
-    const known = new Set(ELYSIA_SERVICES.flatMap((service) => [service.formalName, service.legacyName]))
+    const known = new Set(ELYSIA_SERVICES.map((service) => service.formalName))
     for (const { dir } of PLUGINS) {
       const source = readFileSync(join(pluginsRoot, dir, 'src', 'index.ts'), 'utf8')
       for (const match of source.matchAll(/provides: \[([^\]]*)\]/g)) {

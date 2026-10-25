@@ -350,7 +350,6 @@ describe('Phase 35 Observatory Query & Gateway Failure Analytics', () => {
     const snapshot = service.getSnapshot()
 
     expect(snapshot.trackedStimulusCount).toBe(1)
-    expect(snapshot.activeStimulusCount).toBe(1)
     expect(snapshot.dialogueCount).toBe(1)
     expect(snapshot.gatewayCount).toBe(1)
     expect(snapshot.failureCount).toBe(1)

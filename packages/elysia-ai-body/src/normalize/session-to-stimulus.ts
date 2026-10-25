@@ -50,6 +50,7 @@ export function platformMessageToStimulus(message: PlatformMessage): Stimulus {
       rawContent: message.rawContent,
       quoteContent: message.quoteContent,
       mentionedUserIds: message.mentionedUserIds,
+      actorName: message.username,
     },
     metadata: {
       contentText: message.content ?? '',
@@ -58,11 +59,62 @@ export function platformMessageToStimulus(message: PlatformMessage): Stimulus {
 }
 
 /**
- * @deprecated 请使用 platformMessageToStimulus()
+ * 平台事件（非消息类）→ Stimulus 的构造入口。
  *
- * 此函数已被重命名为 platformMessageToStimulus，名称更准确地反映了
- * 输入来源（PlatformMessage，而非 Session）和转换方向。
- *
- * 保留此别名是为了向后兼容，将在未来版本中移除。
+ * 与 platformMessageToStimulus 并列的第二个（也是最后一个）合法构造点：
+ * 群成员增减 / 表情回应 / bot 自身输出等平台事件经此归一为
+ * appearance / reaction / system 型刺激，payload.eventKind 携带目录事件类型，
+ * 由 trigger 库的 stimulusToTriggerEvent 派生为目录事件。
  */
-export const sessionToStimulus = platformMessageToStimulus
+export type PlatformEventKind = 'member-added' | 'member-removed' | 'reaction' | 'bot-sent'
+
+export interface PlatformEventInput {
+  eventKind: PlatformEventKind
+  platform?: string
+  botId?: string
+  guildId?: string
+  channelId?: string
+  userId?: string
+  /** 发起者展示名（feed 行渲染） */
+  userName?: string
+  /** 消息型事件的内容（bot-sent 的发言文本等） */
+  content?: string
+  timestamp?: number
+  extra?: Record<string, unknown>
+}
+
+export function platformEventToStimulus(input: PlatformEventInput): Stimulus {
+  const timestamp = input.timestamp ?? Date.now()
+  const habitatId = input.guildId ?? input.channelId ?? input.userId ?? 'unknown'
+  const type: Stimulus['type'] = input.eventKind === 'bot-sent'
+    ? 'system'
+    : input.eventKind === 'reaction'
+      ? 'reaction'
+      : 'appearance'
+  const scope = input.channelId ?? input.guildId ?? input.userId ?? 'unknown'
+
+  return {
+    id: `${input.eventKind}:${input.platform ?? '?'}:${scope}:${input.userId ?? '?'}:${timestamp}`,
+    type,
+    timestamp,
+    habitatId,
+    actorId: input.eventKind === 'bot-sent' ? input.botId : input.userId,
+    targetId: input.botId,
+    platform: input.platform,
+    botId: input.botId,
+    guildId: input.guildId,
+    channelId: input.channelId,
+    isSystemEvent: type === 'system',
+    payload: {
+      eventKind: input.eventKind,
+      content: input.content,
+      actorName: input.userName,
+      ...input.extra,
+    },
+    metadata: {
+      eventKind: input.eventKind,
+      actorName: input.userName,
+    },
+  }
+}
+

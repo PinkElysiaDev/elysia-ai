@@ -8,7 +8,6 @@ export interface ElysiaServiceLogger {
 
 export interface RegisterElysiaServiceOptions<T> {
   formalName: string
-  legacyName?: string
   service: T
   logger?: ElysiaServiceLogger
   plugin?: string
@@ -16,7 +15,6 @@ export interface RegisterElysiaServiceOptions<T> {
 
 export interface ElysiaServiceLookupOptions {
   formalName: string
-  legacyName?: string
   logger?: ElysiaServiceLogger
   plugin?: string
   phase?: string
@@ -26,31 +24,20 @@ export interface ElysiaServiceLookupOptions {
 /**
  * 通过 cordis 原生服务机制注册 Elysia 服务。
  *
- * 采用 `ctx.set()` 注册正式名（进 cordis 服务表，支持 `inject` 等待），
- * 并通过 `ctx.reflect.alias()` 把 legacy 别名指向正式名。
+ * `ctx.set()` 注册服务名（进 cordis 服务表，支持 `inject` 等待）。
  *
- * 与旧实现（直接 `ctx[name] = service` 赋值）的区别：
  * - 进 cordis 服务表 → 消费插件可用 `inject: ['elysia.xxx']` 声明依赖，
  *   cordis 会在服务就绪后再跑消费插件的 apply，根除"读早于写"的竞态。
  * - 用 `ctx.get()` 读取不会触发 "property is not registered" 警告。
  *
  * 销毁由 cordis 的 effect 机制托管：插件作用域 dispose 时自动把服务置空，
- * 无需调用方手动 dispose。返回的函数仅作向后兼容（调用方若持有可忽略）。
+ * 调用方无需手动 dispose。
  */
 export function registerElysiaService<T>(
   ctx: Context,
   options: RegisterElysiaServiceOptions<T>,
-): () => void {
-  const { formalName, legacyName, service, logger, plugin } = options
-
-  // 先登记 legacy 别名，使其解析到正式名（alias 须在 set 之前调用，且仅在该名未注册时生效）
-  if (legacyName) {
-    try {
-      ctx.reflect.alias(formalName, [legacyName])
-    } catch {
-      // 别名已存在或冲突，忽略——正式名仍可正常访问
-    }
-  }
+): void {
+  const { formalName, service, logger, plugin } = options
 
   try {
     ctx.set(formalName, service)
@@ -61,15 +48,6 @@ export function registerElysiaService<T>(
       serviceName: formalName,
     })
   }
-
-  // 向后兼容的 dispose 句柄；cordis 已通过 effect 托管销毁，这里通常无需手动调用。
-  return () => {
-    try {
-      ctx.set(formalName, undefined)
-    } catch {
-      // ignore
-    }
-  }
 }
 
 export function getOptionalElysiaService<T>(
@@ -77,10 +55,7 @@ export function getOptionalElysiaService<T>(
   options: ElysiaServiceLookupOptions,
 ): T | undefined {
   // 用 cordis 官方访问器 ctx.get()，对未注册服务返回 undefined 而不触发警告
-  const formal = ctx.get(options.formalName) as T | undefined
-  if (formal) return formal
-  if (options.legacyName) return ctx.get(options.legacyName) as T | undefined
-  return undefined
+  return ctx.get(options.formalName) as T | undefined
 }
 
 /**
@@ -111,7 +86,6 @@ export function getRequiredElysiaService<T>(
       plugin: options.plugin,
       phase: options.phase ?? 'apply',
       formalName: options.formalName,
-      legacyName: options.legacyName,
     },
   )
   return undefined

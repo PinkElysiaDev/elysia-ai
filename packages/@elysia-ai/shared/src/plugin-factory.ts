@@ -12,11 +12,11 @@ import { getRequiredElysiaService, registerElysiaService } from './service-regis
 //   4. 注册插件 manifest（可选）到 runtime 的 manifest 注册表——
 //      runtime.start() 时统一做依赖/版本/命名空间兼容校验（告警式）
 //   5. 调用 build() 构造插件运行时；build 返回 undefined 则放弃
-//      （build 内部完成额外依赖解析、附加门控、runtime 形状重塑）
-//   6. 注册服务到 ctx（formal + legacy 别名）
+//      （build 内部完成额外依赖解析、附加门控）
+//   6. 注册服务到 ctx（cordis 服务表，单名）
 //   7. dispose 时调用 handle.dispose() 并注销 manifest
 //
-// 仅服务于“标准” wrapper。带仓储工厂、命令注册、自定义事件接线的
+// 仅服务于“标准”wrapper。带仓储工厂、命令注册、自定义事件接线的
 // wrapper（memory/bond/model-gateway/observatory/body）保持显式实现
 // （但同样推荐注册 manifest 以纳入兼容治理）。
 // ─────────────────────────────────────────────────
@@ -40,12 +40,8 @@ export interface ElysiaPluginDescriptor<TConfig, TRuntime, TService> {
   name: string
   /** 注册服务的正式名（如 'elysia.perception'）。 */
   serviceFormalName: string
-  /** 注册服务的 legacy 别名（如 'elysia-ai-perception'）。 */
-  serviceLegacyName?: string
   /** runtime 服务正式名，默认 'elysia.runtime'。 */
   runtimeFormalName?: string
-  /** runtime 服务 legacy 别名，默认 'elysia-ai-runtime'。 */
-  runtimeLegacyName?: string
   /** runtime 缺失时日志里的描述，默认 'runtime service'。 */
   runtimeDescription?: string
   /**
@@ -79,7 +75,6 @@ export function createElysiaPlugin<
     const logger = ctx.logger(descriptor.name)
     const runtime = getRequiredElysiaService<TRuntime>(ctx, {
       formalName: descriptor.runtimeFormalName ?? 'elysia.runtime',
-      legacyName: descriptor.runtimeLegacyName ?? 'elysia-ai-runtime',
       logger,
       plugin: descriptor.name,
       description: descriptor.runtimeDescription ?? 'runtime service',
@@ -98,18 +93,16 @@ export function createElysiaPlugin<
       return
     }
 
-    const unregister = registerElysiaService(ctx, {
+    registerElysiaService(ctx, {
       formalName: descriptor.serviceFormalName,
-      legacyName: descriptor.serviceLegacyName,
       service: handle.service,
       logger,
       plugin: descriptor.name,
     })
 
-    // 正式销毁由 cordis effect 托管；兼容句柄兜底保证非 cordis 运行环境
-    // （测试 fake context 等）dispose 后服务同样被清空。
+    // 服务销毁由 cordis effect 托管；这里只负责非 cordis 运行环境（测试 fake
+    // context 等）的 dispose 兜底与 manifest 注销。
     ctx.on('dispose', () => {
-      unregister()
       unregisterManifest?.()
       handle.dispose()
     })

@@ -22,12 +22,13 @@ export * from './types/stimulus.js'
 export * from './types/behavior.js'
 export * from './types/behavior-execution.js'
 export * from './types/dialogue.js'
+export * from './types/tools.js'
+export * from './types/events.js'
+export * from './types/trigger-task.js'
 export * from './types/persona.js'
 export * from './types/memory.js'
-export * from './types/scheduler.js'
 export * from './types/perception.js'
 export * from './types/homeostasis.js'
-export * from './types/cognition.js'
 export * from './types/services.js'
 export * from './types/persistence.js'
 
@@ -61,9 +62,9 @@ export * from './bus/memory-event-bus.js'
 export * from './repositories/bond.js'
 export * from './repositories/life.js'
 export * from './repositories/projection-rule.js'
-export * from './repositories/scheduled-task.js'
 export * from './repositories/state.js'
 export * from './repositories/stimulus.js'
+export * from './repositories/trigger-task.js'
 export * from './repositories/trace.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -82,4 +83,3 @@ export * from './errors/index.js'
 // 插件标准接口（Manifest / PipelineContext / Hooks）
 // 参见：docs/elysia-ai-plugin-development-spec.md
 // ─────────────────────────────────────────────────────────────────────────────
-export * from './plugin/index.js'

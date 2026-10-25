@@ -138,7 +138,6 @@ export class ObservatoryStore {
 
     return {
       recentEvents,
-      activeStimulusCount: trackedStimulusCount,
       trackedStimulusCount,
       dialogueCount,
       gatewayCount,

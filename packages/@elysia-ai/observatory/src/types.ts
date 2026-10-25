@@ -2,13 +2,15 @@ export type ObservedEventKind =
   | 'runtime'
   | 'life'
   | 'stimulus'
+  | 'projection'
+  | 'perception'
+  | 'cognition'
   | 'behavior'
+  | 'body'
   | 'dialogue'
   | 'brain'
   | 'gateway'
   | 'sender'
-  | 'body'
-  | 'scheduler'
   | 'memory'
   | 'bond'
   | 'homeostasis'
@@ -35,6 +37,9 @@ export type ObservedEventStatus =
   | 'updated'
   | 'consolidated'
   | 'initialized'
+  | 'recorded'
+  | 'routed'
+  | 'fired'
 
 export interface ObservedEventRecord {
   id: string
@@ -46,7 +51,6 @@ export interface ObservedEventRecord {
   taskId?: string
   executionPlanId?: string
   executionActionId?: string
-  scheduledTaskId?: string
   memoryId?: string
   memoryRequestId?: string
   bondId?: string
@@ -89,6 +93,8 @@ export interface GatewayFailureRecord {
   slot?: string
   model?: string
   errorCode?: string
+  /** maheshvara 稳定错误分类（invalid_request/authentication/.../server，与 usage 记录 errorKind 同值域）。 */
+  errorClass?: string
   fallbackChain?: string[]
   selectedFallbackSlot?: string
   failedOver?: boolean
@@ -104,6 +110,8 @@ export interface GatewayAnalytics {
   circuitOpenCount: number
   byProviderId: Record<string, number>
   byErrorCode: Record<string, number>
+  /** 按稳定错误分类聚合（与 usage 记录 errorKind 同值域）。 */
+  byErrorClass: Record<string, number>
   byFallbackSlot: Record<string, number>
   recentFailures: GatewayFailureRecord[]
 }
@@ -147,13 +155,7 @@ export interface OperationalSnapshot {
 
 export interface ObservatorySnapshot {
   recentEvents: ObservedEventRecord[]
-  /**
-   * 当前内存中仍可查询 trace 的 stimulus 数量。
-   *
-   * 这里保留 activeStimulusCount 是为了兼容早期调用方，
-   * 语义上它表示 tracked stimulus count，而不是“仍在处理中的活跃刺激”。
-   */
-  activeStimulusCount: number
+  /** 当前内存中仍可查询 trace 的 stimulus 数量。 */
   trackedStimulusCount: number
   dialogueCount: number
   gatewayCount: number

@@ -5,13 +5,12 @@
  * 项目不内置 MongoDB，用户自部署，我们只用 URL 去连；`mongodb` 是可选依赖。
  * 本测试用注入的 createMongoClient 验证：
  *   - connectMongo 按 URL connect/close，取集合
- *   - lazyMongoCollection 首次读写才连库（同步可得句柄），连接只建一次，close 释放
  *   - memory/bond 顶层插件配 mongo.uri 即可启用 mongo 仓储（无需注入 repositoryFactory）
  */
 
 import { describe, expect, it, vi } from 'vitest'
 import { asCordisContext, type Context } from 'koishi'
-import { connectMongo, lazyMongoCollection, type MongoClientLike } from '../packages/@elysia-ai/shared/src/index.js'
+import { connectMongo, type MongoClientLike } from '../packages/@elysia-ai/shared/src/index.js'
 import { createDefaultRuntime } from '../packages/elysia-ai-runtime/src/runtime.js'
 import { createRuntimeStateRepository } from '../packages/elysia-ai-runtime/src/store/runtime-state-repository.js'
 import { apply as applyMemory } from '../packages/elysia-ai-memory/src/index.js'
@@ -84,33 +83,6 @@ describe('D1-5 connectMongo（URL 连接）', () => {
   })
 })
 
-describe('D1-5 lazyMongoCollection（惰性连接）', () => {
-  it('未访问时不连库；首次读写才 connect，且只连一次', async () => {
-    const { client, state } = makeFakeClient()
-    const lazy = lazyMongoCollection(
-      { uri: 'mongodb://localhost:27017' },
-      'lazy_c',
-      { createMongoClient: () => client },
-    )
-    expect(state.connects).toBe(0)
-
-    await lazy.collection.updateOne({ id: 'a' }, { $set: { n: 1 }, $setOnInsert: { id: 'a' } }, { upsert: true })
-    await lazy.collection.findOne({ id: 'a' })
-    await lazy.collection.find({}).toArray()
-    expect(state.connects).toBe(1)
-
-    await lazy.close()
-    expect(state.closes).toBe(1)
-  })
-
-  it('从未访问则 close 为 no-op', async () => {
-    const { client, state } = makeFakeClient()
-    const lazy = lazyMongoCollection({ uri: 'mongodb://x' }, 'c', { createMongoClient: () => client })
-    await lazy.close()
-    expect(state.connects).toBe(0)
-    expect(state.closes).toBe(0)
-  })
-})
 
 function createPluginContext() {
   const ctx: Record<string, unknown> = {

@@ -44,7 +44,7 @@ export interface ManifestIssue {
 }
 
 export interface ManifestRegistryHostInfo {
-  /** 宿主已知的全部服务 id（含 legacy 别名）。 */
+  /** 宿主已知的全部服务 id。 */
   knownServices?: string[]
   /** 宿主已知的全部阶段名。 */
   knownStages?: string[]

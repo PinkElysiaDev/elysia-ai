@@ -25,7 +25,7 @@ export interface MongoClientLike {
   connect(): Promise<unknown>
   close(): Promise<unknown>
   db(name: string): {
-    collection<TDoc extends { id: string }>(name: string): MongoDocLikeCollection<TDoc>
+    collection<TDoc>(name: string): MongoDocLikeCollection<TDoc>
   }
 }
 
@@ -35,8 +35,8 @@ export interface MongoConnectorDependencies {
 }
 
 export interface MongoConnection {
-  /** 取一个集合句柄（领域文档需含 id 字段）。 */
-  collection<TDoc extends { id: string }>(name: string): MongoDocLikeCollection<TDoc>
+  /** 取一个集合句柄（文档形态由调用方的仓储约定决定）。 */
+  collection<TDoc>(name: string): MongoDocLikeCollection<TDoc>
   /** 关闭底层连接，释放资源。 */
   close(): Promise<void>
 }
@@ -82,81 +82,11 @@ export async function connectMongo(
   const db = client.db(config.database ?? DEFAULT_DATABASE)
 
   return {
-    collection<TDoc extends { id: string }>(name: string): MongoDocLikeCollection<TDoc> {
+    collection<TDoc>(name: string): MongoDocLikeCollection<TDoc> {
       return db.collection<TDoc>(name)
     },
     async close() {
       await client.close()
-    },
-  }
-}
-
-export interface LazyMongoCollection<TDoc extends { id: string }> {
-  /** 首次访问任一方法时才建立连接的集合句柄。 */
-  collection: MongoDocLikeCollection<TDoc>
-  /** 若已建立连接则关闭；从未连接则为 no-op。 */
-  close(): Promise<void>
-}
-
-/**
- * 惰性集合：把异步连接包成同步可得的 MongoDocLikeCollection，
- * 仅在首个仓储操作真正触达时才 connectMongo。
- *
- * 用途：Koishi `apply` 与仓储工厂均为同步，而连库是异步；惰性化使
- * memory/bond 插件能在同步路径上拿到集合句柄，连接推迟到首次读写。
- * 连接只建立一次（promise 缓存），dispose 时 close。
- */
-export function lazyMongoCollection<TDoc extends { id: string }>(
-  config: MongoConnectionConfig,
-  collectionName: string,
-  dependencies: MongoConnectorDependencies = {},
-): LazyMongoCollection<TDoc> {
-  let connectionPromise: Promise<MongoConnection> | undefined
-
-  const connection = (): Promise<MongoConnection> => {
-    if (!connectionPromise) connectionPromise = connectMongo(config, dependencies)
-    return connectionPromise
-  }
-
-  const resolveCollection = async (): Promise<MongoDocLikeCollection<TDoc>> => {
-    const conn = await connection()
-    return conn.collection<TDoc>(collectionName)
-  }
-
-  const collection: MongoDocLikeCollection<TDoc> = {
-    async findOne(filter) {
-      return (await resolveCollection()).findOne(filter)
-    },
-    find(filter) {
-      // find 同步返回；包成 toArray 惰性求值的游标，保留 MongoCursorLike 形态。
-      return {
-        async toArray() {
-          const col = await resolveCollection()
-          const cursor = col.find(filter)
-          if (Array.isArray(cursor)) return cursor
-          return 'toArray' in cursor ? cursor.toArray() : cursor
-        },
-      }
-    },
-    async updateOne(filter, update, options) {
-      return (await resolveCollection()).updateOne(filter, update, options)
-    },
-    async deleteOne(filter) {
-      const col = await resolveCollection()
-      return col.deleteOne?.(filter)
-    },
-    async createIndex(keys, options) {
-      const col = await resolveCollection()
-      return col.createIndex?.(keys, options)
-    },
-  }
-
-  return {
-    collection,
-    async close() {
-      if (!connectionPromise) return
-      const conn = await connectionPromise
-      await conn.close()
     },
   }
 }

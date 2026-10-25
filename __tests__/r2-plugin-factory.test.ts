@@ -29,7 +29,7 @@ function createFakeContext() {
 const runtimeWithBus = { context: { eventBus: {} } }
 
 describe('createElysiaPlugin factory', () => {
-  it('registers the service under formal and legacy names on the success path', () => {
+  it('registers the service under its formal name on the success path', () => {
     const { ctx } = createFakeContext()
     ctx['elysia.runtime'] = runtimeWithBus
     const service = { id: 'svc' }
@@ -37,14 +37,12 @@ describe('createElysiaPlugin factory', () => {
     const apply = createElysiaPlugin<Record<string, never>, typeof runtimeWithBus, typeof service>({
       name: 'elysia-ai-test',
       serviceFormalName: 'elysia.test',
-      serviceLegacyName: 'elysia-ai-test',
       build: () => ({ service, dispose: vi.fn() }),
     })
 
     apply(ctx, {})
 
     expect(ctx['elysia.test']).toBe(service)
-    expect(ctx['elysia-ai-test']).toBe(service)
   })
 
   it('does not register when runtime has no eventBus', () => {
@@ -88,7 +86,6 @@ describe('createElysiaPlugin factory', () => {
     const apply = createElysiaPlugin<Record<string, never>, typeof runtimeWithBus, typeof service>({
       name: 'elysia-ai-test',
       serviceFormalName: 'elysia.test',
-      serviceLegacyName: 'elysia-ai-test',
       build: () => ({ service, dispose }),
     })
 
@@ -97,8 +94,8 @@ describe('createElysiaPlugin factory', () => {
 
     runDispose()
 
+    // 服务表清理由 cordis effect 托管（真实 cordis 语义）；工厂 dispose
+    // 钩子只负责 handle.dispose 与 manifest 注销。
     expect(dispose).toHaveBeenCalledOnce()
-    expect(ctx['elysia.test']).toBeUndefined()
-    expect(ctx['elysia-ai-test']).toBeUndefined()
   })
 })
