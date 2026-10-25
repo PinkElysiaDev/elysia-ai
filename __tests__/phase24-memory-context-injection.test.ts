@@ -6,7 +6,7 @@ import { DefaultDialogueService } from '../packages/@elysia-ai/dialogue/src/serv
 import {
   MemoryMemoryRepository,
   RuleBasedMemoryContextProvider,
-} from '../packages/elysia-ai-runtime/src/memory/index.js'
+} from '../packages/@elysia-ai/memory/src/index.js'
 
 describe('Phase 24 Memory Context Injection v1', () => {
   it('RuleBasedMemoryContextProvider 会按 owner / visibility / relation 召回并排序上下文', async () => {

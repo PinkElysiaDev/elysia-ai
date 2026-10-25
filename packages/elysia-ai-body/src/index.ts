@@ -6,6 +6,7 @@ import { getRequiredElysiaService, registerElysiaService } from '@elysia-ai/shar
 import { KoishiBodyAdapter } from './adapters/koishi/index.js'
 import {
   createPlatformSendTaskFromDialogue,
+  HabitatSendRegistry,
   OutboundRouteRegistry,
   RouteMessageSender,
 } from './sender/index.js'
@@ -24,9 +25,7 @@ export interface BodyPluginService extends BodyService {}
 declare module 'koishi' {
   interface Context {
     'elysia.runtime'?: Runtime
-    'elysia-ai-runtime'?: Runtime
     'elysia.body'?: BodyPluginService
-    'elysia-ai-body'?: BodyPluginService
   }
 }
 
@@ -46,7 +45,6 @@ export function apply(ctx: Context, config: Config) {
 
   const runtime = getRequiredElysiaService<Runtime>(ctx, {
     formalName: 'elysia.runtime',
-    legacyName: 'elysia-ai-runtime',
     logger,
     plugin: 'elysia-ai-body',
     description: 'runtime service',
@@ -62,10 +60,23 @@ export function apply(ctx: Context, config: Config) {
   })
 
   const outboundRoutes = new OutboundRouteRegistry()
-  const sender = new RouteMessageSender(outboundRoutes)
+  const habitatRoutes = new HabitatSendRegistry()
+  // 直发兜底：冷启动（habitat 注册表空）时按 platform+channelId 经 koishi bot 发送
+  const directSend: import('./sender/index.js').DirectSendFn = async (target, content) => {
+    const bots = (ctx as unknown as { bots: Array<{ platform?: string, selfId?: string, sendMessage?: (channelId: string, content: string, guildId?: string) => Promise<unknown> }> }).bots ?? []
+    const bot = bots.find((candidate) =>
+      candidate.platform === target.platform
+      && (target.botId === undefined || String(candidate.selfId) === target.botId))
+    if (!bot || typeof bot.sendMessage !== 'function') {
+      throw new Error(`no bot available for direct send (platform=${target.platform ?? '?'}, channelId=${target.channelId ?? '?'})`)
+    }
+    await bot.sendMessage(target.channelId!, content, target.guildId)
+  }
+  const sender = new RouteMessageSender(outboundRoutes, habitatRoutes, directSend)
 
   const bodyService: BodyPluginService = {
     getOutboundRoutes() { return outboundRoutes },
+    getHabitatRoutes() { return habitatRoutes },
     getSender() { return sender },
     getDiagnostics() {
       return {
@@ -77,7 +88,7 @@ export function apply(ctx: Context, config: Config) {
     },
   }
 
-  // kernel 兼容治理：sender 阶段钩子（Phase 2 落地，事件兜底先行）。
+  // kernel 兼容治理：sender 阶段钩子（主链单轨）。
   const unregisterManifest = runtime.context.manifests?.register({
     name: 'elysia-ai-body',
     version: '0.2.0',
@@ -87,7 +98,6 @@ export function apply(ctx: Context, config: Config) {
 
   registerElysiaService(ctx, {
     formalName: 'elysia.body',
-    legacyName: 'elysia-ai-body',
     service: bodyService,
     logger,
     plugin: 'elysia-ai-body',
@@ -96,10 +106,11 @@ export function apply(ctx: Context, config: Config) {
   const adapter = new KoishiBodyAdapter(ctx, runtime, {
     ...config,
     outboundRoutes,
+    habitatRoutes,
   })
   adapter.registerListeners()
 
-  // 发送逻辑：sender 阶段钩子与事件兜底两条路径共用。
+  // 发送逻辑：sender 阶段钩子路径使用。
   const sendOutput = async (output: import('@elysia-ai/core').CoreEventMap['dialogue.output.created']): Promise<void> => {
     const { task, result } = output
 
@@ -116,7 +127,7 @@ export function apply(ctx: Context, config: Config) {
 
     const sourceStimulusId = output.stimulusId
     const route = sourceStimulusId ? outboundRoutes.get(sourceStimulusId) : undefined
-    const sendTask = createPlatformSendTaskFromDialogue(task, result, route)
+    const sendTask = createPlatformSendTaskFromDialogue(task, result, route, { content: output.content })
 
     try {
       await runtime.context.eventBus.emit('sender.started', { task: sendTask })
@@ -146,20 +157,18 @@ export function apply(ctx: Context, config: Config) {
     }
   }
 
-  // ── 装配：sender 阶段钩子优先（读共享上下文累积的输出），事件兜底 ──
+  // ── 装配：kernel 管线 sender 阶段钩子（主链单轨：读共享上下文累积的输出）──
   const pipeline = runtime.context.pipeline
-  const disposeDialogueOutput = pipeline
-    ? pipeline.registerHook({
-        stage: STAGE_SENDER,
-        owner: 'elysia-ai-body',
-        async run(pctx) {
-          const outputs = pctx.read<import('@elysia-ai/core').CoreEventMap['dialogue.output.created'][]>(NS_DIALOGUE_OUTPUT) ?? []
-          for (const output of outputs) {
-            await sendOutput(output)
-          }
-        },
-      })
-    : runtime.context.eventBus.on('dialogue.output.created', (output) => sendOutput(output))
+  const disposeDialogueOutput = pipeline.registerHook({
+    stage: STAGE_SENDER,
+    owner: 'elysia-ai-body',
+    async run(pctx) {
+      const outputs = pctx.read<import('@elysia-ai/core').CoreEventMap['dialogue.output.created'][]>(NS_DIALOGUE_OUTPUT) ?? []
+      for (const output of outputs) {
+        await sendOutput(output)
+      }
+    },
+  })
 
   logger.info('body adapter registered', {
     plugin: 'elysia-ai-body',
@@ -169,6 +178,7 @@ export function apply(ctx: Context, config: Config) {
   ctx.on('dispose', () => {
     disposeDialogueOutput()
     outboundRoutes.clear()
+    habitatRoutes.clear()
     adapter.removeListeners()
     logger.info('body adapter disposed', {
       plugin: 'elysia-ai-body',

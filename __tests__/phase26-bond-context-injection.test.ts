@@ -306,28 +306,4 @@ describe('Phase 26 Bond Context Injection v1', () => {
     })
   })
 
-  it('bond plugin 安装后回填 runtime bondContextProvider', async () => {
-    const runtime = createDefaultRuntime()
-    const ctx = new Context() as any
-    ctx['elysia-ai-runtime'] = runtime
-    applyBondPlugin(ctx, { enabled: true, contextLimit: 5 })
-    await runtime.bondRepository!.save(createBond({
-      id: 'bond-phase26-runtime',
-      lifeId: 'life-phase26-runtime',
-      targetId: 'actor-phase26-runtime',
-      targetType: 'actor',
-      actorId: 'actor-phase26-runtime',
-      summary: 'Runtime actor is familiar.',
-      updatedAt: Date.now(),
-      lastInteractionAt: Date.now(),
-    }))
-
-    const context = await runtime.bondContextProvider!.buildContext({
-      lifeId: 'life-phase26-runtime',
-      actorId: 'actor-phase26-runtime',
-    })
-
-    expect(context.items).toHaveLength(1)
-    expect(context.items[0].bond.id).toBe('bond-phase26-runtime')
-  })
 })

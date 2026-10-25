@@ -15,7 +15,7 @@ import { MemoryBondRepository } from '../packages/@elysia-ai/bond/src/index.js'
 
 function installBondPlugin(runtime: ReturnType<typeof createDefaultRuntime>) {
   const ctx = new Context() as any
-  ctx['elysia-ai-runtime'] = runtime
+  ctx['elysia.runtime'] = runtime
   applyBondPlugin(ctx, { enabled: true, contextLimit: 5 })
   return ctx['elysia.bond']
 }
@@ -57,7 +57,7 @@ function createPlan(): ResponsePlan {
 describe('Phase 21 Bond System v1 涓€浣撳寲娴嬭瘯', () => {
   it('BehaviorExecution bond-update action 浼氱粡 BondService 鍐欏叆姝ｅ紡 Bond 骞跺彂鍑?bond.created', async () => {
     const runtime = createDefaultRuntime()
-    installBondPlugin(runtime)
+    const bondPlugin = installBondPlugin(runtime)
     const observatory = new DefaultObservatoryService(100)
     const createdEvents: CoreEventMap['bond.created'][] = []
 
@@ -83,7 +83,6 @@ describe('Phase 21 Bond System v1 涓€浣撳寲娴嬭瘯', () => {
 
     const bond = createdEvents[0].bond
     expect(bond.lifeId).toBe('life-phase21')
-    expect(bond.lifeInstanceId).toBe('life-phase21')
     expect(bond.targetId).toBe('actor-phase21')
     expect(bond.targetType).toBe('actor')
     expect(bond.status).toBe('active')
@@ -96,7 +95,7 @@ describe('Phase 21 Bond System v1 涓€浣撳寲娴嬭瘯', () => {
     expect(bond.source?.stimulusId).toBe('stim-phase21')
     expect(bond.source?.executionPlanId).toBe(plan.id)
 
-    const stored = await runtime.bondRepository.getByLifeAndTarget('life-phase21', 'actor-phase21')
+    const stored = await bondPlugin.repository.getByLifeAndTarget('life-phase21', 'actor-phase21')
     expect(stored?.id).toBe(bond.id)
 
     const trace = observatory.getRecentEvents()
@@ -115,7 +114,7 @@ describe('Phase 21 Bond System v1 涓€浣撳寲娴嬭瘯', () => {
 
   it('BondService 浼氭寜 life/target 鍚堝苟閲嶅鏇存柊骞剁疮璁?metrics', async () => {
     const runtime = createDefaultRuntime()
-    installBondPlugin(runtime)
+    const bondPlugin = installBondPlugin(runtime)
     const updatedEvents: CoreEventMap['bond.updated'][] = []
 
     ;(runtime.context.eventBus as any).on('bond.updated', (payload: CoreEventMap['bond.updated']) => {
@@ -124,7 +123,7 @@ describe('Phase 21 Bond System v1 涓€浣撳寲娴嬭瘯', () => {
 
     await runtime.start()
 
-    const first = await runtime.bondService.update({
+    const first = await bondPlugin.service.update({
       id: 'bond-request-merge-1',
       lifeId: 'life-phase21-merge',
       targetId: 'actor-merge',
@@ -142,7 +141,7 @@ describe('Phase 21 Bond System v1 涓€浣撳寲娴嬭瘯', () => {
       },
     })
 
-    const second = await runtime.bondService.update({
+    const second = await bondPlugin.service.update({
       id: 'bond-request-merge-2',
       lifeId: 'life-phase21-merge',
       targetId: 'actor-merge',
@@ -168,7 +167,7 @@ describe('Phase 21 Bond System v1 涓€浣撳寲娴嬭瘯', () => {
     expect(second.bond.tags).toEqual(['first', 'second'])
     expect(second.bond.interactionCount).toBe(2)
 
-    const stored = await runtime.bondRepository.listByLife('life-phase21-merge')
+    const stored = await bondPlugin.repository.listByLife('life-phase21-merge')
     expect(stored).toHaveLength(1)
 
     await runtime.stop()
@@ -176,7 +175,7 @@ describe('Phase 21 Bond System v1 涓€浣撳寲娴嬭瘯', () => {
 
   it('BondService 鏀寔鎸?life/target/status/tag/metric 鏌ヨ骞跺彂鍑?bond.retrieved', async () => {
     const runtime = createDefaultRuntime()
-    installBondPlugin(runtime)
+    const bondPlugin = installBondPlugin(runtime)
     const retrievedEvents: CoreEventMap['bond.retrieved'][] = []
 
     ;(runtime.context.eventBus as any).on('bond.retrieved', (payload: CoreEventMap['bond.retrieved']) => {
@@ -185,7 +184,7 @@ describe('Phase 21 Bond System v1 涓€浣撳寲娴嬭瘯', () => {
 
     await runtime.start()
 
-    await runtime.bondService.update({
+    await bondPlugin.service.update({
       id: 'bond-request-query-1',
       lifeId: 'life-phase21-query',
       targetId: 'actor-a',
@@ -199,7 +198,7 @@ describe('Phase 21 Bond System v1 涓€浣撳寲娴嬭瘯', () => {
       createdAt: 1000,
     })
 
-    await runtime.bondService.update({
+    await bondPlugin.service.update({
       id: 'bond-request-query-2',
       lifeId: 'life-phase21-query',
       targetId: 'actor-b',
@@ -213,7 +212,7 @@ describe('Phase 21 Bond System v1 涓€浣撳寲娴嬭瘯', () => {
       createdAt: 2000,
     })
 
-    const result = await runtime.bondService.retrieve({
+    const result = await bondPlugin.service.retrieve({
       lifeId: 'life-phase21-query',
       targetId: 'actor-a',
       targetType: 'actor',
@@ -239,9 +238,9 @@ describe('Phase 21 Bond System v1 涓€浣撳寲娴嬭瘯', () => {
 
   it('BondService 鍐欏叆澶辫触鏃跺彂鍑?bond.update.failed 涓斾笉鐮村潖 execution result', async () => {
     const runtime = createDefaultRuntime()
-    installBondPlugin(runtime)
+    const bondPlugin = installBondPlugin(runtime)
     const failedEvents: CoreEventMap['bond.update.failed'][] = []
-    const repository = runtime.bondRepository as MemoryBondRepository
+    const repository = bondPlugin.repository as MemoryBondRepository
     const saveSpy = vi.spyOn(repository, 'save').mockRejectedValueOnce(new Error('phase21 bond save failure'))
 
     ;(runtime.context.eventBus as any).on('bond.update.failed', (payload: CoreEventMap['bond.update.failed']) => {
@@ -270,11 +269,11 @@ describe('Phase 21 Bond System v1 涓€浣撳寲娴嬭瘯', () => {
 
   it('BondService 鏀寔鎵嬪姩鍐欏叆 habitat/thread/life 鐩爣绫诲瀷', async () => {
     const runtime = createDefaultRuntime()
-    installBondPlugin(runtime)
+    const bondPlugin = installBondPlugin(runtime)
 
     await runtime.start()
 
-    const habitat = await runtime.bondService.update({
+    const habitat = await bondPlugin.service.update({
       id: 'bond-request-habitat',
       lifeId: 'life-phase21-targets',
       targetId: 'habitat-target',
@@ -286,7 +285,7 @@ describe('Phase 21 Bond System v1 涓€浣撳寲娴嬭瘯', () => {
       createdAt: 1000,
     })
 
-    const thread = await runtime.bondService.update({
+    const thread = await bondPlugin.service.update({
       id: 'bond-request-thread',
       lifeId: 'life-phase21-targets',
       targetId: 'thread-target',
@@ -301,7 +300,7 @@ describe('Phase 21 Bond System v1 涓€浣撳寲娴嬭瘯', () => {
     expect(habitat.bond.targetType).toBe('habitat')
     expect(thread.bond.targetType).toBe('thread')
 
-    const result = await runtime.bondService.retrieve({
+    const result = await bondPlugin.service.retrieve({
       lifeId: 'life-phase21-targets',
       limit: 10,
     })

@@ -13,7 +13,7 @@ import {
   MemoryBondRepository,
   RuleBasedBondContextProvider,
   RuleBasedBondRelevanceSelector,
-} from '../packages/elysia-ai-runtime/src/bond/index.js'
+} from '../packages/@elysia-ai/bond/src/index.js'
 
 function createBond(patch: Partial<Bond> & { id: string; targetId: string; targetType: Bond['targetType'] }): Bond {
   return {

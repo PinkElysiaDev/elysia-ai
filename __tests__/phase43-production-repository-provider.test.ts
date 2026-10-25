@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { asCordisContext, type Context } from 'koishi'
 import { MemoryEventBus, type CoreEventMap, type MemoryEntry, type Bond } from '../packages/@elysia-ai/core/src/index.js'
+import { applyFindOptions, matchesFilter, type MongoFakeFindOptions } from './helpers/mongo-fake.js'
 import { createDefaultRuntime } from '../packages/elysia-ai-runtime/src/runtime.js'
 import { apply as applyMemory } from '../packages/elysia-ai-memory/src/index.js'
 import { apply as applyBond } from '../packages/elysia-ai-bond/src/index.js'
@@ -33,19 +34,14 @@ class FakeMongoCollection<TDocument extends { id: string }> {
   readonly indexes: Array<{ keys: Record<string, 1 | -1>; options?: Record<string, unknown> }> = []
 
   async findOne(filter: Record<string, unknown>): Promise<TDocument | null> {
-    if (filter.id) return this.documents.get(String(filter.id)) ?? null
     for (const document of this.documents.values()) {
-      const payload = (document as any).entry ?? (document as any).bond
-      if (filter.lifeId && payload.lifeId !== filter.lifeId) continue
-      if (filter.targetId && payload.targetId !== filter.targetId) continue
-      if (filter.targetType && payload.targetType !== filter.targetType) continue
-      return document
+      if (matchesFilter(document, filter)) return document
     }
     return null
   }
 
-  find(): { toArray(): Promise<TDocument[]> } {
-    return { toArray: async () => [...this.documents.values()] }
+  find(filter: Record<string, unknown>, options?: MongoFakeFindOptions): { toArray(): Promise<TDocument[]> } {
+    return { toArray: async () => applyFindOptions([...this.documents.values()].filter((d) => matchesFilter(d, filter)), options) }
   }
 
   async updateOne(filter: { id: string }, update: { $set: Partial<TDocument>; $setOnInsert: Partial<TDocument> }, _options: { upsert: true }) {
@@ -169,8 +165,6 @@ describe('Phase 43 production repository/provider configuration', () => {
 
     expect(ctx['elysia.memory']?.repository).toBeInstanceOf(MongoMemoryRepository)
     expect(ctx['elysia.bond']?.repository).toBeInstanceOf(MongoBondRepository)
-    expect(runtime.memoryRepository).toBe(ctx['elysia.memory'].repository)
-    expect(runtime.bondRepository).toBe(ctx['elysia.bond'].repository)
   })
 
   it('model gateway supports provider registry config with direct apiKey and provider slots', () => {

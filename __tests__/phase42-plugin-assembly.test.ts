@@ -70,7 +70,7 @@ function createPluginContext() {
 function attachRuntime(ctx: Record<string, any>) {
   const runtime = createDefaultRuntime()
   ctx['elysia.runtime'] = runtime
-  ctx['elysia-ai-runtime'] = runtime
+  ctx['elysia.runtime'] = runtime
   return runtime
 }
 
@@ -79,7 +79,7 @@ function attachModelGateway(ctx: Record<string, any>) {
     execute: vi.fn(async () => ({ output: 'ok', messages: [] })),
   }
   ctx['elysia.modelGateway'] = modelGateway
-  ctx['elysia-ai-model-gateway'] = modelGateway
+  ctx['elysia.modelGateway'] = modelGateway
   return modelGateway
 }
 
@@ -88,7 +88,7 @@ function attachBrain(ctx: Record<string, any>) {
     think: vi.fn(async () => ({ output: 'ok', messages: [], metadata: {} })),
   } as unknown as BrainService
   ctx['elysia.brain'] = brain
-  ctx['elysia-ai-brain'] = brain
+  ctx['elysia.brain'] = brain
   return brain
 }
 
@@ -98,35 +98,25 @@ async function disposeAll(disposers: Array<() => void | Promise<void>>) {
 
 const behaviorConfig = {
   enableReply: true,
-  directWindowMs: 1500,
-  userBufferedWindowMs: 2500,
-  threadBufferedWindowMs: 3500,
-  habitatBufferedWindowMs: 5000,
+  batcher: { quietWindowMs: 8_000, dmQuietWindowMs: 1_500, maxWaitMs: 30_000, densityWindowMs: 10_000, densityThreshold: 15, maxBatch: 50 },
+  packMemory: { maxPacks: 12, injectPacks: 2 },
+  commands: [],
+  instantRules: [],
+  triggers: { enabled: true, adminWhitelist: [], maxTasksPerOwner: 20, repository: 'memory' },
 }
 
 const perceptionConfig = {
-  maxInputTokens: 8192,
   enabledIntentClassify: true,
   enabledEntityExtract: true,
   enabledSentiment: true,
-  aiEnhanced: false,
-  aiFallbackToRuleBased: true,
-  aiMinTextLength: 12,
-  aiModelSlot: '',
 }
 
 const cognitionConfig = {
-  recentConversationLimit: 12,
-  salienceDirectMentionBonus: 0.35,
-  salienceDirectMessageBonus: 0.25,
-  salienceReplyBonus: 0.2,
-  salienceQuestionBonus: 0.15,
-  salienceLengthFactor: 0.001,
-  behaviorThreshold: 0.35,
-  aiEnhanced: false,
-  aiFallbackToRuleBased: true,
-  aiMinSalience: 0.2,
-  aiModelSlot: '',
+  events: {
+    enabled: true,
+    feed: { maxEvents: 30 },
+    history: { maxEvents: 100, windowMs: 1_800_000 },
+  },
 }
 
 const homeostasisConfig = {
@@ -140,8 +130,6 @@ const homeostasisConfig = {
   curiosityDecayPerTick: 0.002,
   maxValue: 1,
   minValue: 0,
-  responseThresholdMin: 0.3,
-  responseThresholdMax: 0.8,
   restoreOnStartup: true,
 }
 
@@ -153,34 +141,32 @@ const personaConfig = {
 }
 
 const plugins = [
-  ['behavior', 'elysia.behavior', 'elysia-ai-behavior', applyBehavior, behaviorConfig, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
-  ['body', 'elysia.body', 'elysia-ai-body', applyBody, {}, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
-  ['bond', 'elysia.bond', 'elysia-ai-bond', applyBond, { enabled: true, contextLimit: 5 }, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
-  ['brain', 'elysia.brain', 'elysia-ai-brain', applyBrain, {}, (ctx: Record<string, any>) => { attachRuntime(ctx); attachModelGateway(ctx) }],
-  ['cognition', 'elysia.cognition', 'elysia-ai-cognition', applyCognition, cognitionConfig, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
-  ['dialogue', 'elysia.dialogue', 'elysia-ai-dialogue', applyDialogue, { enabled: true, memoryLimit: 5 }, (ctx: Record<string, any>) => { attachRuntime(ctx); attachBrain(ctx) }],
-  ['homeostasis', 'elysia.homeostasis', 'elysia-ai-homeostasis', applyHomeostasis, homeostasisConfig, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
-  ['memory', 'elysia.memory', 'elysia-ai-memory', applyMemory, { enabled: true, contextLimit: 5 }, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
-  ['model-gateway', 'elysia.modelGateway', 'elysia-ai-model-gateway', applyModelGateway, {}, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
-  ['observatory', 'elysia.observatory', 'elysia-ai-observatory', applyObservatory, { enabled: true, maxRecords: 20 }, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
-  ['perception', 'elysia.perception', 'elysia-ai-perception', applyPerception, perceptionConfig, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
-  ['persona', 'elysia.persona', 'elysia-ai-persona', applyPersona, personaConfig, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
+  ['behavior', 'elysia.behavior', applyBehavior, behaviorConfig, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
+  ['body', 'elysia.body', applyBody, {}, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
+  ['bond', 'elysia.bond', applyBond, { enabled: true, contextLimit: 5 }, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
+  ['brain', 'elysia.brain', applyBrain, {}, (ctx: Record<string, any>) => { attachRuntime(ctx); attachModelGateway(ctx) }],
+  ['cognition', 'elysia.cognition', applyCognition, cognitionConfig, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
+  ['dialogue', 'elysia.dialogue', applyDialogue, { enabled: true, memoryLimit: 5 }, (ctx: Record<string, any>) => { attachRuntime(ctx); attachBrain(ctx) }],
+  ['homeostasis', 'elysia.homeostasis', applyHomeostasis, homeostasisConfig, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
+  ['memory', 'elysia.memory', applyMemory, { enabled: true, contextLimit: 5 }, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
+  ['model-gateway', 'elysia.modelGateway', applyModelGateway, {}, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
+  ['observatory', 'elysia.observatory', applyObservatory, { enabled: true, maxRecords: 20 }, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
+  ['perception', 'elysia.perception', applyPerception, perceptionConfig, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
+  ['persona', 'elysia.persona', applyPersona, personaConfig, (ctx: Record<string, any>) => { attachRuntime(ctx) }],
 ] as const
 
 describe('Phase 42 top-level plugin assembly contracts', () => {
-  it.each(plugins)('%s registers canonical and legacy services and clears them on dispose', async (_label, formalName, legacyName, apply, config, setup) => {
+  it.each(plugins)('%s registers its service and clears it on dispose', async (_label, formalName, apply, config, setup) => {
     const { ctx, disposers } = createPluginContext()
     setup(ctx)
 
     apply(ctx, config as never)
 
     expect(ctx[formalName]).toBeTruthy()
-    expect(ctx[legacyName]).toBe(ctx[formalName])
 
     await disposeAll(disposers)
 
     expect(ctx[formalName]).toBeUndefined()
-    expect(ctx[legacyName]).toBeUndefined()
   })
 
   it('dialogue registers without optional memory and bond services', () => {
@@ -191,7 +177,7 @@ describe('Phase 42 top-level plugin assembly contracts', () => {
     applyDialogue(ctx, { enabled: true, memoryLimit: 5 })
 
     expect(ctx['elysia.dialogue']).toBeTruthy()
-    expect(ctx['elysia-ai-dialogue']).toBe(ctx['elysia.dialogue'])
+    expect(ctx['elysia.dialogue']).toBe(ctx['elysia.dialogue'])
   })
 
   it('perception and cognition register without optional brain service', () => {
@@ -204,29 +190,5 @@ describe('Phase 42 top-level plugin assembly contracts', () => {
     attachRuntime(cognition.ctx)
     applyCognition(cognition.ctx, cognitionConfig)
     expect(cognition.ctx['elysia.cognition']).toBeTruthy()
-  })
-
-  it('memory and bond fill and clear runtime compatibility fields', async () => {
-    const memory = createPluginContext()
-    const memoryRuntime = attachRuntime(memory.ctx)
-    applyMemory(memory.ctx, { enabled: true, contextLimit: 5 })
-    expect(memoryRuntime.memoryRepository).toBeTruthy()
-    expect(memoryRuntime.memoryService).toBeTruthy()
-    expect(memoryRuntime.memoryContextProvider).toBeTruthy()
-    await disposeAll(memory.disposers)
-    expect(memoryRuntime.memoryRepository).toBeUndefined()
-    expect(memoryRuntime.memoryService).toBeUndefined()
-    expect(memoryRuntime.memoryContextProvider).toBeUndefined()
-
-    const bond = createPluginContext()
-    const bondRuntime = attachRuntime(bond.ctx)
-    applyBond(bond.ctx, { enabled: true, contextLimit: 5 })
-    expect(bondRuntime.bondRepository).toBeTruthy()
-    expect(bondRuntime.bondService).toBeTruthy()
-    expect(bondRuntime.bondContextProvider).toBeTruthy()
-    await disposeAll(bond.disposers)
-    expect(bondRuntime.bondRepository).toBeUndefined()
-    expect(bondRuntime.bondService).toBeUndefined()
-    expect(bondRuntime.bondContextProvider).toBeUndefined()
   })
 })

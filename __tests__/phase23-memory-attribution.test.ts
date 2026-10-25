@@ -11,7 +11,7 @@ import { createDefaultRuntime } from '../packages/elysia-ai-runtime/src/runtime.
 
 function installMemoryPlugin(runtime: ReturnType<typeof createDefaultRuntime>) {
   const ctx = new Context() as any
-  ctx['elysia-ai-runtime'] = runtime
+  ctx['elysia.runtime'] = runtime
   applyMemoryPlugin(ctx, { enabled: true, contextLimit: 5 })
   return ctx['elysia.memory']
 }
@@ -48,10 +48,10 @@ describe('Phase 23 Memory Attribution & Routing v1', () => {
 
   it('MemoryService.update applies deterministic attribution when attribution is omitted', async () => {
     const runtime = createDefaultRuntime()
-    installMemoryPlugin(runtime)
+    const memoryPlugin = installMemoryPlugin(runtime)
     await runtime.start()
 
-    const result = await runtime.memoryService!.update({
+    const result = await memoryPlugin.service.update({
       id: 'memory-request-phase23-implicit-attribution',
       lifeId: 'life-phase23-implicit',
       actorId: 'actor-phase23-implicit',
@@ -80,8 +80,7 @@ describe('Phase 23 Memory Attribution & Routing v1', () => {
   it('MemoryService.processUpdateRequest supports multiple memories from custom attributor', async () => {
     const runtime = createDefaultRuntime()
     const memoryRepository = new MemoryMemoryRepository()
-    runtime.memoryRepository = memoryRepository
-    runtime.memoryService = new DefaultMemoryService(
+    const memoryService = new DefaultMemoryService(
       memoryRepository,
       runtime.context.eventBus,
       undefined,
@@ -120,7 +119,7 @@ describe('Phase 23 Memory Attribution & Routing v1', () => {
       },
     )
 
-    const result = await (runtime.memoryService! as any).processUpdateRequest({
+    const result = await (memoryService as any).processUpdateRequest({
       id: 'memory-request-phase23-multi',
       lifeId: 'life-phase23-multi',
       actorId: 'actor-phase23-multi',
@@ -131,12 +130,12 @@ describe('Phase 23 Memory Attribution & Routing v1', () => {
 
     expect(result.created).toBe(true)
 
-    const actorMemories = await runtime.memoryService!.retrieve({
+    const actorMemories = await memoryService.retrieve({
       lifeId: 'life-phase23-multi',
       ownerType: 'actor',
       ownerId: 'actor-phase23-multi',
     })
-    const habitatMemories = await runtime.memoryService!.retrieve({
+    const habitatMemories = await memoryService.retrieve({
       lifeId: 'life-phase23-multi',
       ownerType: 'habitat',
       ownerId: 'habitat-phase23-multi',
@@ -178,10 +177,10 @@ describe('Phase 23 Memory Attribution & Routing v1', () => {
 
   it('news metadata is routed as global semantic memory', async () => {
     const runtime = createDefaultRuntime()
-    installMemoryPlugin(runtime)
+    const memoryPlugin = installMemoryPlugin(runtime)
     await runtime.start()
 
-    const result = await runtime.memoryService!.update({
+    const result = await memoryPlugin.service.update({
       id: 'memory-request-phase23-news',
       lifeId: 'life-phase23-news',
       content: 'A public news event happened',

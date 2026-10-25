@@ -1,7 +1,7 @@
 import { Schema } from 'koishi'
 import { createDialoguePluginRuntime } from '@elysia-ai/dialogue'
 import type { Config as DialogueConfig } from '@elysia-ai/dialogue'
-import type { BondContextProvider, BrainService, ConversationStore, CoreEventMap, DialogueService, EventBus, MemoryContextProvider } from '@elysia-ai/core'
+import type { BondContextProvider, BrainService, ConversationStore, CoreEventMap, DialogueService, EventBus, MemoryContextProvider, PipelineRunner } from '@elysia-ai/core'
 import { createElysiaPlugin, getOptionalElysiaService, getRequiredElysiaService } from '@elysia-ai/shared'
 export * from '@elysia-ai/dialogue'
 
@@ -19,16 +19,13 @@ export const Config: Schema<DialogueConfig> = Schema.object({
 export const apply = createElysiaPlugin<
   DialogueConfig,
   {
-    context: { eventBus: EventBus<CoreEventMap> }
+    context: { eventBus: EventBus<CoreEventMap>, pipeline: PipelineRunner<unknown> }
     conversationStore?: ConversationStore
-    memoryContextProvider?: MemoryContextProvider
-    bondContextProvider?: BondContextProvider
   },
   DialogueService
 >({
   name: 'elysia-ai-dialogue',
   serviceFormalName: 'elysia.dialogue',
-  serviceLegacyName: 'elysia-ai-dialogue',
   // kernel 兼容治理：声明身份/服务/挂载阶段，runtime.start() 统一校验。
   manifest: {
     name: 'elysia-ai-dialogue',
@@ -41,7 +38,6 @@ export const apply = createElysiaPlugin<
   build({ ctx, runtime, config, logger }) {
     const brain = getRequiredElysiaService<BrainService>(ctx, {
       formalName: 'elysia.brain',
-      legacyName: 'elysia-ai-brain',
       logger,
       plugin: 'elysia-ai-dialogue',
       description: 'brain service',
@@ -49,11 +45,9 @@ export const apply = createElysiaPlugin<
     if (!brain) return undefined
     const memory = getOptionalElysiaService<{ contextProvider?: MemoryContextProvider }>(ctx, {
       formalName: 'elysia.memory',
-      legacyName: 'elysia-ai-memory',
     })
     const bond = getOptionalElysiaService<{ contextProvider?: BondContextProvider }>(ctx, {
       formalName: 'elysia.bond',
-      legacyName: 'elysia-ai-bond',
     })
     return createDialoguePluginRuntime({ runtime, brain, memory, bond, config, logger })
   },

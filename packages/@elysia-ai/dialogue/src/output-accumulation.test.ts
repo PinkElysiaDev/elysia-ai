@@ -36,8 +36,6 @@ describe('dialogue 钩子装配的输出累积', () => {
       runtime: {
         context: { eventBus, pipeline: runner },
         conversationStore: undefined,
-        memoryContextProvider: undefined,
-        bondContextProvider: undefined,
       },
       brain: makeBrain('钩子回复'),
       config: { enabled: true, memoryLimit: 10 },

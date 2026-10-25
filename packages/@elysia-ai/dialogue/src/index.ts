@@ -19,7 +19,7 @@ export interface Config {
   memoryLimit: number
 }
 
-// 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?// Dialogue task 闁圭粯鍔曡ぐ?// 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?
+// ─── Dialogue task 提取 ───
 function extractDialogueTasks(
   instruction: BehaviorExecutionInstruction
 ): { action: BehaviorAction & { type: 'dialogue' }; task: DialogueTask }[] {
@@ -28,44 +28,66 @@ function extractDialogueTasks(
     .map((action) => ({ action, task: action.task }))
 }
 
-// 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?// Dialogue task 闁圭瑳鍡╂斀
-// 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?
+// ─── 单条对话任务执行（事件发射 + agentic 输出协议） ───
 async function executeOneDialogueTask(
   eventBus: EventBus<CoreEventMap>,
   service: DefaultDialogueService,
   instruction: BehaviorExecutionInstruction,
   task: DialogueTask,
   onOutput?: (output: CoreEventMap['dialogue.output.created']) => void,
+  logger?: DialogueLoggerLike,
 ) {
   await eventBus.emit('dialogue.task.created', { task })
   await eventBus.emit('dialogue.generation.requested', { task })
   await eventBus.emit('dialogue.started', { task })
   const result = await service.execute(task)
   await eventBus.emit('dialogue.generated', { task, result })
-  const output: CoreEventMap['dialogue.output.created'] = {
-    outputId: `${instruction.stimulusId}:output`,
-    stimulusId: instruction.stimulusId,
-    habitatId: task.habitatId,
-    threadId: task.metadata?.threadId as string | undefined,
-    actorId: task.metadata?.actorId as string | undefined,
-    content: result.output,
-    task,
-    result,
-    messages: result.messages,
-    metadata: {
-      ...result.metadata,
-      source: 'elysia-ai-dialogue',
-    },
+
+  // agentic 输出协议：沉默 → 不产生任何 output（sender 无从发送）；
+  // 多段发言（send_reply 多次调用）→ 每段一条 output，sender 逐条发送。
+  const agentic = result.metadata?.agentic as
+    | { segments?: string[]; silent?: boolean; silentReason?: string }
+    | undefined
+
+  if (agentic?.silent) {
+    logger?.info('agentic dialogue chose silence; no output', {
+      plugin: 'elysia-ai-dialogue',
+      phase: 'dialogue',
+      stimulusId: instruction.stimulusId,
+      silentReason: agentic.silentReason,
+    })
+    await eventBus.emit('dialogue.completed', { task, result })
+    return result
   }
-  await eventBus.emit('dialogue.output.created', output)
-  // 管线路径：输出累积进共享上下文，sender 阶段逐条发送（事件照发不变）。
-  onOutput?.(output)
+
+  const contents = agentic?.segments?.length ? agentic.segments : [result.output]
+  for (const [index, content] of contents.entries()) {
+    const output: CoreEventMap['dialogue.output.created'] = {
+      // 多段发言的 outputId 加段序号区分（sender/observatory 可按 id 对账）；
+      // 单段保持无尾缀以兼容既有断言与消费者。
+      outputId: index > 0 ? `${instruction.stimulusId}:output:${index}` : `${instruction.stimulusId}:output`,
+      stimulusId: instruction.stimulusId,
+      habitatId: task.habitatId,
+      threadId: task.metadata?.threadId as string | undefined,
+      actorId: task.metadata?.actorId as string | undefined,
+      content,
+      task,
+      result,
+      messages: result.messages,
+      metadata: {
+        ...result.metadata,
+        source: 'elysia-ai-dialogue',
+      },
+    }
+    await eventBus.emit('dialogue.output.created', output)
+    // 管线路径：输出累积进共享上下文，sender 阶段逐条发送（事件照发不变）。
+    onOutput?.(output)
+  }
   await eventBus.emit('dialogue.completed', { task, result })
   return result
 }
 
-// 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?// Plugin apply
-// 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?
+// ─── Plugin apply ───
 type DialogueLoggerLike = {
   info(...args: unknown[]): void
   debug(...args: unknown[]): void
@@ -75,11 +97,9 @@ type DialogueLoggerLike = {
 
 export interface DialoguePluginRuntimeOptions {
   runtime: {
-    /** pipeline 存在时走阶段钩子装配；缺省回退事件装配。 */
-    context: { eventBus: EventBus<CoreEventMap>, pipeline?: import('@elysia-ai/core').PipelineRunner<unknown> }
+    /** 阶段钩子装配所用的 kernel 管线（主链单轨：处理走钩子，事件只做事实通知）。 */
+    context: { eventBus: EventBus<CoreEventMap>, pipeline: import('@elysia-ai/core').PipelineRunner<unknown> }
     conversationStore?: ConversationStore
-    memoryContextProvider?: MemoryContextProvider
-    bondContextProvider?: BondContextProvider
   }
   brain: BrainService
   memory?: { contextProvider?: MemoryContextProvider }
@@ -111,8 +131,8 @@ export function createDialoguePluginRuntime(options: DialoguePluginRuntimeOption
 
   const eventBus = runtime.context.eventBus
   const conversationStore = runtime.conversationStore
-  const memoryContextProvider = memory?.contextProvider ?? runtime.memoryContextProvider
-  const bondContextProvider = bond?.contextProvider ?? runtime.bondContextProvider
+  const memoryContextProvider = memory?.contextProvider
+  const bondContextProvider = bond?.contextProvider
   const dialogueService = new DefaultDialogueService(
     brain,
     conversationStore,
@@ -176,6 +196,7 @@ export function createDialoguePluginRuntime(options: DialoguePluginRuntimeOption
           instruction,
           task,
           onOutput,
+          logger,
         )
 
         logger.info('dialogue completed', {
@@ -200,26 +221,24 @@ export function createDialoguePluginRuntime(options: DialoguePluginRuntimeOption
     }
   }
 
-  // ── 装配：钩子优先（读共享上下文里的 instruction），事件兜底 ──
+  // ── 装配：kernel 管线阶段钩子（主链单轨：读共享上下文里的 instruction）──
   const pipeline = runtime.context.pipeline
-  const disposeInstruction = pipeline
-    ? pipeline.registerHook({
-        stage: STAGE_DIALOGUE,
-        owner: 'elysia-ai-dialogue',
-        async run(pctx) {
-          const instruction = pctx.read<BehaviorExecutionInstruction>(NS_BEHAVIOR)
-          if (!instruction) return
-          // 输出累积写入 NS_DIALOGUE_OUTPUT（数组化，多 task 场景逐条追加），
-          // sender 阶段读取发送。
-          const outputs = pctx.read<CoreEventMap['dialogue.output.created'][]>(NS_DIALOGUE_OUTPUT) ?? []
-          pctx.write(NS_DIALOGUE_OUTPUT, outputs, 'accumulate-begin')
-          await handleInstruction(instruction, (output) => {
-            const current = pctx.read<CoreEventMap['dialogue.output.created'][]>(NS_DIALOGUE_OUTPUT) ?? []
-            pctx.write(NS_DIALOGUE_OUTPUT, [...current, output], 'output-created')
-          })
-        },
+  const disposeInstruction = pipeline.registerHook({
+    stage: STAGE_DIALOGUE,
+    owner: 'elysia-ai-dialogue',
+    async run(pctx) {
+      const instruction = pctx.read<BehaviorExecutionInstruction>(NS_BEHAVIOR)
+      if (!instruction) return
+      // 输出累积写入 NS_DIALOGUE_OUTPUT（数组化，多 task 场景逐条追加），
+      // sender 阶段读取发送。
+      const outputs = pctx.read<CoreEventMap['dialogue.output.created'][]>(NS_DIALOGUE_OUTPUT) ?? []
+      pctx.write(NS_DIALOGUE_OUTPUT, outputs, 'accumulate-begin')
+      await handleInstruction(instruction, (output) => {
+        const current = pctx.read<CoreEventMap['dialogue.output.created'][]>(NS_DIALOGUE_OUTPUT) ?? []
+        pctx.write(NS_DIALOGUE_OUTPUT, [...current, output], 'output-created')
       })
-    : eventBus.on('behavior.instruction', ({ instruction }) => handleInstruction(instruction))
+    },
+  })
 
   return {
     service: dialogueService,

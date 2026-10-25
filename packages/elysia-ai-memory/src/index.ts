@@ -1,7 +1,8 @@
 import { Schema, type Context } from 'koishi'
 import { createMemoryPluginRuntime, MemoryMemoryRepository, MongoMemoryRepository } from '@elysia-ai/memory'
+import type { MemoryRepository } from '@elysia-ai/core'
 import type { Config as MemoryConfig, MemoryRepositoryFactoryOptions, MongoMemoryCollection } from '@elysia-ai/memory'
-import type { CoreEventMap, EventBus, MemoryContextProvider, MemoryRepository, MemoryService, PersistenceService } from '@elysia-ai/core'
+import type { CoreEventMap, EventBus, PersistenceService } from '@elysia-ai/core'
 import { createElysiaPlugin, getOptionalElysiaService } from '@elysia-ai/shared'
 export * from '@elysia-ai/memory'
 
@@ -51,7 +52,6 @@ function resolveMemoryRepositoryFactory(
 
   const persistence = getOptionalElysiaService<PersistenceService>(ctx, {
     formalName: 'elysia.persistence',
-    legacyName: 'elysia-ai-persistence',
   })
 
   const collection = persistence?.getCollection('elysia_memories')
@@ -74,18 +74,14 @@ function resolveMemoryRepositoryFactory(
 
 type MemoryRuntimeShape = {
   context: { eventBus: EventBus<CoreEventMap> }
-  memoryRepository?: MemoryRepository
-  memoryService?: MemoryService
-  memoryContextProvider?: MemoryContextProvider
 }
 
-// 工厂 v2 装配：仓储解析与 runtime 形状回填在 build() 内完成，
+// 工厂 v2 装配：仓储解析在 build() 内完成，
 // manifest 注册/注销由工厂统一托管。注册的服务是复合体
-// （repository/service/attributor/contextProvider），与旧实现一致。
+// （repository/service/attributor/contextProvider）。
 export const apply = createElysiaPlugin<MemoryPluginConfig, MemoryRuntimeShape, import('@elysia-ai/memory').MemoryPluginService>({
   name: 'elysia-ai-memory',
   serviceFormalName: 'elysia.memory',
-  serviceLegacyName: 'elysia-ai-memory',
   runtimeDescription: 'runtime service',
   manifest: {
     name: 'elysia-ai-memory',
@@ -102,18 +98,11 @@ export const apply = createElysiaPlugin<MemoryPluginConfig, MemoryRuntimeShape, 
     })
     if (!memoryRuntime) return undefined
 
-    runtime.memoryRepository = memoryRuntime.repository
-    runtime.memoryService = memoryRuntime.memoryService
-    runtime.memoryContextProvider = memoryRuntime.contextProvider
-
     return {
       service: memoryRuntime.service,
       dispose() {
         memoryRuntime.dispose()
         // 不再 close mongo 连接：持久化连接生命周期由 runtime 的 stateRepository 统一管理。
-        if (runtime.memoryRepository === memoryRuntime.repository) runtime.memoryRepository = undefined
-        if (runtime.memoryService === memoryRuntime.memoryService) runtime.memoryService = undefined
-        if (runtime.memoryContextProvider === memoryRuntime.contextProvider) runtime.memoryContextProvider = undefined
       },
     }
   },

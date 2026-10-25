@@ -11,7 +11,7 @@ import {
   MemoryMemoryRepository,
   RuleBasedMemoryContextProvider,
   RuleBasedMemoryRelevanceSelector,
-} from '../packages/elysia-ai-runtime/src/memory/index.js'
+} from '../packages/@elysia-ai/memory/src/index.js'
 
 function createItem(id: string, score: number, content = id): MemoryContextItem {
   return {

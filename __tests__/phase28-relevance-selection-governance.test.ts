@@ -11,10 +11,10 @@ import type {
 } from '../packages/@elysia-ai/core/src/index.js'
 import {
   AiAssistedBondRelevanceSelector,
-} from '../packages/elysia-ai-runtime/src/bond/index.js'
+} from '../packages/@elysia-ai/bond/src/index.js'
 import {
   AiAssistedMemoryRelevanceSelector,
-} from '../packages/elysia-ai-runtime/src/memory/index.js'
+} from '../packages/@elysia-ai/memory/src/index.js'
 
 function createMemoryItem(id: string, score: number, content = id): MemoryContextItem {
   return {

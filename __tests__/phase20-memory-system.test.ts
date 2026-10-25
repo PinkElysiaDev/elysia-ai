@@ -15,7 +15,7 @@ import { MemoryMemoryRepository } from '../packages/@elysia-ai/memory/src/index.
 
 function installMemoryPlugin(runtime: ReturnType<typeof createDefaultRuntime>) {
   const ctx = new Context() as any
-  ctx['elysia-ai-runtime'] = runtime
+  ctx['elysia.runtime'] = runtime
   applyMemoryPlugin(ctx, { enabled: true, contextLimit: 5 })
   return ctx['elysia.memory']
 }
@@ -57,7 +57,7 @@ function createPlan(): ResponsePlan {
 describe('Phase 20 Memory System v1 integration tests', () => {
   it('BehaviorExecution memory-update action writes MemoryEntry and emits memory.created', async () => {
     const runtime = createDefaultRuntime()
-    installMemoryPlugin(runtime)
+    const memoryPlugin = installMemoryPlugin(runtime)
     const observatory = new DefaultObservatoryService(100)
     const createdEvents: CoreEventMap['memory.created'][] = []
 
@@ -93,7 +93,7 @@ describe('Phase 20 Memory System v1 integration tests', () => {
     expect(entry.source?.stimulusId).toBe('stim-phase20')
     expect(entry.source?.executionPlanId).toBe(plan.id)
 
-    const stored = await runtime.memoryRepository!.listByStimulusId('stim-phase20')
+    const stored = await memoryPlugin.repository!.listByStimulusId('stim-phase20')
     expect(stored).toHaveLength(1)
     expect(stored[0].id).toBe(entry.id)
 
@@ -113,7 +113,7 @@ describe('Phase 20 Memory System v1 integration tests', () => {
 
   it('MemoryService supports querying and retrieve access stats', async () => {
     const runtime = createDefaultRuntime()
-    installMemoryPlugin(runtime)
+    const memoryPlugin = installMemoryPlugin(runtime)
     const retrievedEvents: CoreEventMap['memory.retrieved'][] = []
 
     ;(runtime.context.eventBus as any).on('memory.retrieved', (payload: CoreEventMap['memory.retrieved']) => {
@@ -122,7 +122,7 @@ describe('Phase 20 Memory System v1 integration tests', () => {
 
     await runtime.start()
 
-    await runtime.memoryService!.update({
+    await memoryPlugin.service.update({
       id: 'memory-request-query-1',
       lifeId: 'life-phase20-query',
       actorId: 'actor-a',
@@ -141,7 +141,7 @@ describe('Phase 20 Memory System v1 integration tests', () => {
       },
     })
 
-    await runtime.memoryService!.update({
+    await memoryPlugin.service.update({
       id: 'memory-request-query-2',
       lifeId: 'life-phase20-query',
       actorId: 'actor-b',
@@ -160,7 +160,7 @@ describe('Phase 20 Memory System v1 integration tests', () => {
       },
     })
 
-    const result = await runtime.memoryService!.retrieve({
+    const result = await memoryPlugin.service.retrieve({
       lifeId: 'life-phase20-query',
       actorId: 'actor-a',
       habitatId: 'habitat-a',
@@ -189,7 +189,7 @@ describe('Phase 20 Memory System v1 integration tests', () => {
 
   it('MemoryService merges duplicate updates from same source stimulus and emits memory.updated', async () => {
     const runtime = createDefaultRuntime()
-    installMemoryPlugin(runtime)
+    const memoryPlugin = installMemoryPlugin(runtime)
     const updatedEvents: CoreEventMap['memory.updated'][] = []
 
     ;(runtime.context.eventBus as any).on('memory.updated', (payload: CoreEventMap['memory.updated']) => {
@@ -198,7 +198,7 @@ describe('Phase 20 Memory System v1 integration tests', () => {
 
     await runtime.start()
 
-    const first = await runtime.memoryService!.update({
+    const first = await memoryPlugin.service.update({
       id: 'memory-request-merge-1',
       lifeId: 'life-phase20-merge',
       actorId: 'actor-merge',
@@ -210,7 +210,7 @@ describe('Phase 20 Memory System v1 integration tests', () => {
       createdAt: 1000,
     })
 
-    const second = await runtime.memoryService!.update({
+    const second = await memoryPlugin.service.update({
       id: 'memory-request-merge-2',
       lifeId: 'life-phase20-merge',
       actorId: 'actor-merge',
@@ -229,7 +229,7 @@ describe('Phase 20 Memory System v1 integration tests', () => {
     expect(second.entry.tags).toEqual(['first', 'second'])
     expect(second.entry.importance).toBe(0.8)
 
-    const stored = await runtime.memoryRepository!.listByStimulusId('stim-merge')
+    const stored = await memoryPlugin.repository!.listByStimulusId('stim-merge')
     expect(stored).toHaveLength(1)
 
     await runtime.stop()
@@ -237,7 +237,7 @@ describe('Phase 20 Memory System v1 integration tests', () => {
 
   it('MemoryService consolidate creates consolidated memory and archives old entries', async () => {
     const runtime = createDefaultRuntime()
-    installMemoryPlugin(runtime)
+    const memoryPlugin = installMemoryPlugin(runtime)
     const consolidatedEvents: CoreEventMap['memory.consolidated'][] = []
 
     ;(runtime.context.eventBus as any).on('memory.consolidated', (payload: CoreEventMap['memory.consolidated']) => {
@@ -246,7 +246,7 @@ describe('Phase 20 Memory System v1 integration tests', () => {
 
     await runtime.start()
 
-    await runtime.memoryService!.update({
+    await memoryPlugin.service.update({
       id: 'memory-request-consolidate-1',
       lifeId: 'life-phase20-consolidate',
       actorId: 'actor-consolidate',
@@ -259,7 +259,7 @@ describe('Phase 20 Memory System v1 integration tests', () => {
       source: { stimulusId: 'stim-consolidate-1' },
     })
 
-    await runtime.memoryService!.update({
+    await memoryPlugin.service.update({
       id: 'memory-request-consolidate-2',
       lifeId: 'life-phase20-consolidate',
       actorId: 'actor-consolidate',
@@ -272,7 +272,7 @@ describe('Phase 20 Memory System v1 integration tests', () => {
       source: { stimulusId: 'stim-consolidate-2' },
     })
 
-    const result = await runtime.memoryService!.consolidate({
+    const result = await memoryPlugin.service.consolidate({
       id: 'memory-consolidation-request-1',
       lifeId: 'life-phase20-consolidate',
       actorId: 'actor-consolidate',
@@ -287,7 +287,7 @@ describe('Phase 20 Memory System v1 integration tests', () => {
     expect(result.archivedEntryIds).toHaveLength(1)
     expect(consolidatedEvents).toHaveLength(1)
 
-    const active = await runtime.memoryService!.retrieve({
+    const active = await memoryPlugin.service.retrieve({
       lifeId: 'life-phase20-consolidate',
       actorId: 'actor-consolidate',
       status: 'active',
@@ -302,9 +302,9 @@ describe('Phase 20 Memory System v1 integration tests', () => {
 
   it('MemoryService emits memory.update.failed without breaking execution result', async () => {
     const runtime = createDefaultRuntime()
-    installMemoryPlugin(runtime)
+    const memoryPlugin = installMemoryPlugin(runtime)
     const failedEvents: CoreEventMap['memory.update.failed'][] = []
-    const repository = runtime.memoryRepository! as MemoryMemoryRepository
+    const repository = memoryPlugin.repository! as MemoryMemoryRepository
     const saveSpy = vi.spyOn(repository, 'save').mockRejectedValueOnce(new Error('phase20 save failure'))
 
     ;(runtime.context.eventBus as any).on('memory.update.failed', (payload: CoreEventMap['memory.update.failed']) => {
@@ -323,7 +323,12 @@ describe('Phase 20 Memory System v1 integration tests', () => {
 
     const result = await runtime.behaviorExecution.execute(plan)
 
-    expect(result.completed).toBe(true)
+    // W3（2026-09 第二轮修复）：memory-update 不再恒 completed——memory 服务失败时
+    // 对应 action 置 failed、整体 plan 落 partial；其余动作不受阻断（continue 策略）。
+    expect(result.completed).toBe(false)
+    expect(result.status).toBe('partial')
+    const memoryAction = result.actionResults.find((action) => action.type === 'memory-update')
+    expect(memoryAction?.completed).toBe(false)
     expect(failedEvents).toHaveLength(1)
     expect(failedEvents[0].request.lifeId).toBe('life-phase20-failure')
 

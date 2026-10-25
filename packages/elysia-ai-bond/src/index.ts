@@ -1,7 +1,8 @@
 import { Schema, type Context } from 'koishi'
 import { createBondPluginRuntime, MemoryBondRepository, MongoBondRepository } from '@elysia-ai/bond'
+import type { BondRepository } from '@elysia-ai/core'
 import type { Config as BondConfig, BondRepositoryFactoryOptions, MongoBondCollection } from '@elysia-ai/bond'
-import type { BondContextProvider, BondRepository, BondService, CoreEventMap, EventBus, PersistenceService } from '@elysia-ai/core'
+import type { CoreEventMap, EventBus, PersistenceService } from '@elysia-ai/core'
 import {
   createElysiaPlugin,
   getOptionalElysiaService,
@@ -53,7 +54,6 @@ function resolveBondRepositoryFactory(
 
   const persistence = getOptionalElysiaService<PersistenceService>(ctx, {
     formalName: 'elysia.persistence',
-    legacyName: 'elysia-ai-persistence',
   })
 
   const collection = persistence?.getCollection('elysia_bonds')
@@ -76,17 +76,13 @@ function resolveBondRepositoryFactory(
 
 type BondRuntimeShape = {
   context: { eventBus: EventBus<CoreEventMap> }
-  bondRepository?: BondRepository
-  bondService?: BondService
-  bondContextProvider?: BondContextProvider
 }
 
-// 工厂 v2 装配：仓储解析与 runtime 形状回填在 build() 内完成，
+// 工厂 v2 装配：仓储解析在 build() 内完成，
 // manifest 注册/注销由工厂统一托管。
 export const apply = createElysiaPlugin<BondPluginConfig, BondRuntimeShape, ReturnType<typeof createBondPluginRuntime>['service']>({
   name: 'elysia-ai-bond',
   serviceFormalName: 'elysia.bond',
-  serviceLegacyName: 'elysia-ai-bond',
   runtimeDescription: 'runtime service',
   manifest: {
     name: 'elysia-ai-bond',
@@ -103,18 +99,11 @@ export const apply = createElysiaPlugin<BondPluginConfig, BondRuntimeShape, Retu
     })
     if (!bondRuntime) return undefined
 
-    runtime.bondRepository = bondRuntime.repository
-    runtime.bondService = bondRuntime.bondService
-    runtime.bondContextProvider = bondRuntime.contextProvider
-
     return {
       service: bondRuntime.service,
       dispose() {
         bondRuntime.dispose()
         // 不再 close mongo 连接：持久化连接生命周期由 runtime 的 stateRepository 统一管理。
-        if (runtime.bondRepository === bondRuntime.repository) runtime.bondRepository = undefined
-        if (runtime.bondService === bondRuntime.bondService) runtime.bondService = undefined
-        if (runtime.bondContextProvider === bondRuntime.contextProvider) runtime.bondContextProvider = undefined
       },
     }
   },

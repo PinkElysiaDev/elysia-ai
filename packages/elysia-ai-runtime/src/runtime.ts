@@ -3,18 +3,11 @@ import type {
   ProjectionResolver,
   ProjectionRule,
   ProjectionRuleRepository,
-  ScheduledTaskRepository,
   PersonaRegistry,
   ConversationStore,
   LifeStateRepository,
   HomeostasisState,
   BehaviorExecutionService,
-  MemoryContextProvider,
-  MemoryRepository,
-  MemoryService,
-  BondContextProvider,
-  BondRepository,
-  BondService,
   HomeostasisService,
 } from '@elysia-ai/core'
 import { MemoryEventBus } from '@elysia-ai/core'
@@ -59,8 +52,6 @@ import { DefaultProjectionRuleService } from './projection/projection-rule-servi
 import type { ProjectionRuleService } from './projection/projection-rule-service.js'
 import { MemoryProjectionRegistry } from './projection/registry.js'
 import type { ProjectionRegistry } from './projection/registry.js'
-import { DefaultSchedulerService, MemoryScheduledTaskRepository } from './scheduler/index.js'
-import type { SchedulerService } from './scheduler/index.js'
 import { DefaultBehaviorExecutionService } from './behavior-execution/index.js'
 import { DefaultHomeostasisService } from './homeostasis/index.js'
 
@@ -119,6 +110,13 @@ function resolveProjectionRules(instance: LifeInstanceConfig): ProjectionRule[] 
   })
 }
 
+/** 同 habitat 优先级串行队列条目（数值小者先；同级 FIFO）。 */
+interface PriorityQueueEntry {
+  stimulus: Stimulus
+  priority: number
+  resolve: () => void
+}
+
 export interface Runtime {
   context: RuntimeContext
   lifeRegistry: LifeRegistry
@@ -131,28 +129,14 @@ export interface Runtime {
   projectionRegistry: ProjectionRegistry
   projectionRuleRepository: ProjectionRuleRepository
   projectionRuleService: ProjectionRuleService
-  scheduledTaskRepository: ScheduledTaskRepository
-  scheduler: SchedulerService
   behaviorExecution: BehaviorExecutionService
-  /** @deprecated provided by @elysia-ai/memory when installed */
-  memoryRepository?: MemoryRepository
-  /** @deprecated provided by @elysia-ai/memory when installed */
-  memoryService?: MemoryService
-  /** @deprecated provided by @elysia-ai/memory when installed */
-  memoryContextProvider?: MemoryContextProvider
-  /** @deprecated provided by @elysia-ai/bond when installed */
-  bondRepository?: BondRepository
-  /** @deprecated provided by @elysia-ai/bond when installed */
-  bondService?: BondService
-  /** @deprecated provided by @elysia-ai/bond when installed */
-  bondContextProvider?: BondContextProvider
   homeostasisService: HomeostasisService
 
   start(): Promise<void>
   stop(): Promise<void>
   getState(): LifecycleState
-  
-  receiveStimulus(stimulus: Stimulus): Promise<void>
+
+  receiveStimulus(stimulus: Stimulus, options?: { priority?: number }): Promise<void>
   
   /**
    * 从 ManifestConfig 加载生命体实例
@@ -198,18 +182,16 @@ export class DefaultRuntime implements Runtime {
   public projectionResolver: ProjectionResolver
   public projectionRegistry: ProjectionRegistry
   public projectionRuleService: ProjectionRuleService
-  public scheduler: SchedulerService
   public behaviorExecution: BehaviorExecutionService
-  public memoryRepository?: MemoryRepository
-  public memoryService?: MemoryService
-  public memoryContextProvider?: MemoryContextProvider
-  public bondRepository?: BondRepository
-  public bondService?: BondService
-  public bondContextProvider?: BondContextProvider
   public homeostasisService: HomeostasisService
   public personaRegistry: PersonaRegistry
   public conversationStore: ConversationStore
-  private readonly stimulusQueues = new Map<string, Promise<void>>()
+  /**
+   * 同 habitat 刺激优先级串行队列（P1-9 串行语义 + vtuber 插队语义）。
+   * 数值小者先执行；稳定插入保持同级 FIFO；正在执行的任务不可抢占，
+   * 只对未开始的条目插队。跨 habitat 并行不变。
+   */
+  private readonly stimulusQueues = new Map<string, { entries: PriorityQueueEntry[], draining: boolean }>()
   /** loadManifest 收集的 extensions 命名空间键（start 时对齐校验用）。 */
   private readonly manifestExtensionNamespaces = new Set<string>()
   /** 延迟兼容审计定时器（stop 时清除）。 */
@@ -227,15 +209,7 @@ export class DefaultRuntime implements Runtime {
     projectionRegistry?: ProjectionRegistry,
     public projectionRuleRepository: ProjectionRuleRepository = new MemoryProjectionRuleRepository(),
     projectionRuleService?: ProjectionRuleService,
-    public scheduledTaskRepository: ScheduledTaskRepository = new MemoryScheduledTaskRepository(),
-    scheduler?: SchedulerService,
     behaviorExecution?: BehaviorExecutionService,
-    memoryRepository?: MemoryRepository,
-    memoryService?: MemoryService,
-    memoryContextProvider?: MemoryContextProvider,
-    bondRepository?: BondRepository,
-    bondService?: BondService,
-    bondContextProvider?: BondContextProvider,
     homeostasisService?: HomeostasisService,
   ) {
     // kernel 管线原语补齐：即使宿主传入裸上下文（单包测试场景），
@@ -262,37 +236,10 @@ export class DefaultRuntime implements Runtime {
       context.eventBus,
       context.logger,
     )
-    this.scheduler = scheduler ?? new DefaultSchedulerService(
-      this.scheduledTaskRepository,
-      context.eventBus,
-      {
-        // followup 到期必须走完整的 receiveStimulus 主链（感知→投影路由→
-        // 认知→行为），此前只裸 emit stimulus.received，不做 projection
-        // routing，cognition/behavior 都不会被触发，延迟回复永远不发生。
-        followup: async (task) => {
-          const stimulus = task.payload['stimulus']
-          if (stimulus && typeof stimulus === 'object' && 'id' in stimulus && 'habitatId' in stimulus) {
-            await this.receiveStimulus(stimulus as Stimulus)
-            return
-          }
-          context.logger.warn?.('followup task ignored: payload.stimulus missing', {
-            taskId: task.id,
-          })
-        },
-      },
-      context.logger,
-    )
     this.behaviorExecution = behaviorExecution ?? new DefaultBehaviorExecutionService(
       context.eventBus,
-      this.scheduler,
       context.logger,
     )
-    this.memoryRepository = memoryRepository
-    this.memoryService = memoryService
-    this.memoryContextProvider = memoryContextProvider
-    this.bondRepository = bondRepository
-    this.bondService = bondService
-    this.bondContextProvider = bondContextProvider
     this.homeostasisService = homeostasisService ?? new DefaultHomeostasisService(
       this.stateRepository,
       context.eventBus,
@@ -361,26 +308,8 @@ export class DefaultRuntime implements Runtime {
       this.auditCompatibility()
     }, 0)
     this.auditTimer.unref?.()
-    // 先回收上次进程中断残留的 running 任务，再启动调度循环，
-    // 避免恢复出的 pending 任务错过首轮 tick（P1-8）。
-    if (this.scheduler.recoverInterruptedTasks) {
-      try {
-        await this.scheduler.recoverInterruptedTasks()
-      } catch (error) {
-        this.context.logger.error('failed to recover interrupted scheduled tasks', error, {
-          phase: 'scheduler',
-        })
-      }
-    }
     if ('start' in this.homeostasisService && typeof this.homeostasisService.start === 'function') {
       this.homeostasisService.start()
-    }
-    if (this.scheduler.startLoop) {
-      this.scheduler.startLoop({
-        enabled: true,
-        tickIntervalMs: 1000,
-        batchSize: 100,
-      })
     }
     this.context.logger.info('runtime started', {
       state: this.lifecycle.getState(),
@@ -404,7 +333,6 @@ export class DefaultRuntime implements Runtime {
     this.context.logger.info('runtime stop requested', {
       state: this.lifecycle.getState(),
     })
-    this.scheduler.stopLoop?.()
     if ('stop' in this.homeostasisService && typeof this.homeostasisService.stop === 'function') {
       this.homeostasisService.stop()
     }
@@ -418,7 +346,7 @@ export class DefaultRuntime implements Runtime {
     return this.lifecycle.getState()
   }
 
-  async receiveStimulus(stimulus: Stimulus): Promise<void> {
+  async receiveStimulus(stimulus: Stimulus, options?: { priority?: number }): Promise<void> {
     if (!this.lifecycle.isRunning()) {
       // Runtime 未启动时，忽略 stimulus
       // 这是正常行为，不需要报错，调用方无需判断 runtime 状态
@@ -431,23 +359,48 @@ export class DefaultRuntime implements Runtime {
 
     // 同一 habitat 的刺激串行处理（P1-9）：Koishi 消息天然并发，而
     // homeostasis / bond / memory 的更新是"读-改-写"，两个 projection.routed
-    // 处理流交错会互相覆盖状态。按 habitatId 维护 promise 链排队，
-    // 不同 habitat 之间仍并行，对外行为（不抛错）保持不变。
+    // 处理流交错会互相覆盖状态。不同 habitat 之间仍并行。
+    // 优先级（vtuber 插队语义）：即时唤醒（被@/私聊，priority 0）可插到
+    // 等待中的批量唤醒前，正在执行的不可抢占。
     const queueKey = stimulus.habitatId || '_global'
-    const previous = this.stimulusQueues.get(queueKey) ?? Promise.resolve()
-    const chained = previous.then(() => this.processStimulus(stimulus))
-    this.stimulusQueues.set(queueKey, chained)
+    const priority = options?.priority ?? 1
+    const queue = this.stimulusQueues.get(queueKey) ?? { entries: [], draining: false }
+    this.stimulusQueues.set(queueKey, queue)
+
+    let resolveDone!: () => void
+    const done = new Promise<void>((resolve) => { resolveDone = resolve })
+    // 稳定插入：插到第一个"优先级数值更大"（更低优先级）的条目前；同级 FIFO
+    const entry: PriorityQueueEntry = { stimulus, priority, resolve: resolveDone }
+    const insertBefore = queue.entries.findIndex((item) => item.priority > priority)
+    if (insertBefore === -1) queue.entries.push(entry)
+    else queue.entries.splice(insertBefore, 0, entry)
+
+    void this.drainStimulusQueue(queueKey, queue)
+    await done
+  }
+
+  private async drainStimulusQueue(queueKey: string, queue: { entries: PriorityQueueEntry[], draining: boolean }): Promise<void> {
+    if (queue.draining) return
+    queue.draining = true
     try {
-      await chained
-    } catch (error) {
-      // processStimulus 内部 emit 已隔离监听器错误；此处兜底队列尾部异常，
-      // 避免单条失败毒化同 habitat 后续消息的处理链。
-      this.context.logger.error('stimulus processing failed in habitat queue', error, {
-        stimulusId: stimulus.id,
-        habitatId: stimulus.habitatId,
-      })
+      while (queue.entries.length > 0) {
+        const entry = queue.entries.shift()!
+        try {
+          await this.processStimulus(entry.stimulus)
+        } catch (error) {
+          // processStimulus 内部 emit 已隔离监听器错误；此处兜底队列条目异常，
+          // 避免单条失败毒化同 habitat 后续消息的处理链。
+          this.context.logger.error('stimulus processing failed in habitat queue', error, {
+            stimulusId: entry.stimulus.id,
+            habitatId: entry.stimulus.habitatId,
+          })
+        } finally {
+          entry.resolve()
+        }
+      }
     } finally {
-      if (this.stimulusQueues.get(queueKey) === chained) {
+      queue.draining = false
+      if (queue.entries.length === 0) {
         this.stimulusQueues.delete(queueKey)
       }
     }
@@ -509,6 +462,8 @@ export class DefaultRuntime implements Runtime {
 
       await this.context.eventBus.emit('projection.routed', {
         stimulusId: stimulus.id,
+        triggerSource: stimulus.metadata?.triggerSource as string | undefined,
+        stimulusType: stimulus.type,
         routing,
       })
 
@@ -640,15 +595,7 @@ export interface DefaultRuntimeOptions {
   projectionRuleRepository?: ProjectionRuleRepository
   projectionRegistry?: ProjectionRegistry
   projectionRuleService?: ProjectionRuleService
-  scheduledTaskRepository?: ScheduledTaskRepository
-  scheduler?: SchedulerService
   behaviorExecution?: BehaviorExecutionService
-  memoryRepository?: MemoryRepository
-  memoryService?: MemoryService
-  memoryContextProvider?: MemoryContextProvider
-  bondRepository?: BondRepository
-  bondService?: BondService
-  bondContextProvider?: BondContextProvider
   homeostasisService?: HomeostasisService
 }
 
@@ -658,15 +605,7 @@ type NormalizedDefaultRuntimeOptions = Required<Pick<DefaultRuntimeOptions, 'log
     | 'projectionRuleRepository'
     | 'projectionRegistry'
     | 'projectionRuleService'
-    | 'scheduledTaskRepository'
-    | 'scheduler'
     | 'behaviorExecution'
-    | 'memoryRepository'
-    | 'memoryService'
-    | 'memoryContextProvider'
-    | 'bondRepository'
-    | 'bondService'
-    | 'bondContextProvider'
     | 'homeostasisService'
   >
 
@@ -685,15 +624,7 @@ function normalizeDefaultRuntimeOptions(
     projectionRuleRepository: optionsOrLogger.projectionRuleRepository,
     projectionRegistry: optionsOrLogger.projectionRegistry,
     projectionRuleService: optionsOrLogger.projectionRuleService,
-    scheduledTaskRepository: optionsOrLogger.scheduledTaskRepository,
-    scheduler: optionsOrLogger.scheduler,
     behaviorExecution: optionsOrLogger.behaviorExecution,
-    memoryRepository: optionsOrLogger.memoryRepository,
-    memoryService: optionsOrLogger.memoryService,
-    memoryContextProvider: optionsOrLogger.memoryContextProvider,
-    bondRepository: optionsOrLogger.bondRepository,
-    bondService: optionsOrLogger.bondService,
-    bondContextProvider: optionsOrLogger.bondContextProvider,
     homeostasisService: optionsOrLogger.homeostasisService,
   }
 }
@@ -704,6 +635,12 @@ export function createDefaultRuntime(optionsOrLogger: RuntimeLogger | DefaultRun
   const context: RuntimeContext = {
     eventBus,
     logger: options.logger,
+    // 构造函数内会注册 ELYSIA_PIPELINE_STAGES（pipeline ??= 分支保留防御语义）
+    pipeline: new PipelineRunner<unknown>({
+      onError: (error, meta) => {
+        options.logger.error('pipeline hook failed', error, { phase: 'pipeline', ...meta })
+      },
+    }),
   }
 
   const lifeRegistry = new MemoryLifeRegistry()
@@ -722,15 +659,7 @@ export function createDefaultRuntime(optionsOrLogger: RuntimeLogger | DefaultRun
     options.projectionRegistry,
     options.projectionRuleRepository,
     options.projectionRuleService,
-    options.scheduledTaskRepository,
-    options.scheduler,
     options.behaviorExecution,
-    options.memoryRepository,
-    options.memoryService,
-    options.memoryContextProvider,
-    options.bondRepository,
-    options.bondService,
-    options.bondContextProvider,
     options.homeostasisService,
   )
 }

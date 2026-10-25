@@ -1,75 +1,55 @@
 import type {
-  BrainService,
   CapabilityDiagnostics,
   CognitionService,
-  CognitionContext,
   CoreEventMap,
   EventBus,
-  HomeostasisState,
-  PerceptionResult,
-  PersonaRegistry,
-  ConversationStore,
+  PipelineRunner,
   Stimulus,
+  TriggerEvent,
 } from '@elysia-ai/core'
-import { BoundedCache, createConversationScopeKey, resolveConversationScope } from '@elysia-ai/shared'
-import { NS_COGNITION, NS_PERCEPTION, STAGE_COGNITION } from '@elysia-ai/core'
-import type { CognitionResult, PipelineRunner } from '@elysia-ai/core'
-import { reasonWithAi } from './ai-enhanced.js'
+import { BoundedCache } from '@elysia-ai/shared'
+import { STAGE_COGNITION } from '@elysia-ai/core'
+import {
+  EventHistory,
+  isEventEnabled,
+  stimulusToTriggerEvent,
+} from '@elysia-ai/trigger'
 
 export const internalName = 'elysia-ai-cognition'
 
+/**
+ * cognition（事件注入层）配置：用户配置各类事件是否注入 events 变量。
+ *
+ * 两层开关语义：
+ * - enabledEvents：接收开关——事件进不进历史（密度合并也依赖历史）；
+ * - feed.include：呈现开关——事件在清单里对模型可不可见。
+ */
 export interface Config {
-  recentConversationLimit: number
-  salienceDirectMentionBonus: number
-  salienceDirectMessageBonus: number
-  salienceReplyBonus: number
-  salienceQuestionBonus: number
-  salienceLengthFactor: number
-  behaviorThreshold: number
-  aiEnhanced?: boolean
-  aiFallbackToRuleBased?: boolean
-  aiMinSalience?: number
-  aiModelSlot?: string
-}
-
-function resolveScopeKey(stimulus: Stimulus, lifeId?: string): string {
-  // 与 dialogue 写入侧共用 shared 的唯一派生实现（P0-2）：
-  // 此前 cognition 用 thread:/channel:/habitat: 前缀而 dialogue 用
-  // lifeId:type:key 格式，key 永不匹配导致连续性信号恒为 0。
-  return createConversationScopeKey(lifeId, resolveConversationScope(stimulus))
-}
-
-function buildCognitionContext(
-  stimulus: Stimulus,
-  personaRegistry: PersonaRegistry,
-  conversationStore: ConversationStore,
-  config: Config,
-  perception?: PerceptionResult,
-  homeostasis?: HomeostasisState,
-): CognitionContext {
-  const lifeId = stimulus.lifeId
-  const scopeKey = resolveScopeKey(stimulus, lifeId)
-  const persona = lifeId ? personaRegistry.getByLifeId(lifeId) : undefined
-  const recentConversation = conversationStore.getRecent(scopeKey, config.recentConversationLimit)
-
-  return {
-    stimulusId: stimulus.id,
-    lifeId,
-    habitatId: stimulus.habitatId,
-    actorId: stimulus.actorId,
-    threadId: stimulus.threadId,
-    scopeKey,
-    stimulus,
-    persona,
-    perception,
-    homeostasis,
-    recentConversation,
+  events: {
+    enabled: boolean
+    enabledEvents?: Record<string, boolean>
+    feed: {
+      include?: Record<string, boolean>
+      maxEvents: number
+    }
+    history: {
+      maxEvents: number
+      windowMs: number
+    }
   }
 }
 
-// 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-// Plugin apply
-// 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+export const DEFAULT_CONFIG: Config = {
+  events: {
+    enabled: true,
+    feed: { maxEvents: 30 },
+    history: { maxEvents: 100, windowMs: 30 * 60_000 },
+  },
+}
+
+function scopeKey(lifeId: string, habitatId: string): string {
+  return `${lifeId}:${habitatId}`
+}
 
 type CognitionLoggerLike = {
   info(...args: unknown[]): void
@@ -80,12 +60,9 @@ type CognitionLoggerLike = {
 
 export interface CognitionPluginRuntimeOptions {
   runtime: {
-    /** pipeline 存在时走阶段钩子装配；缺省回退事件装配。 */
+    /** cognition 以阶段钩子装配（单轨）；事件仅作事实通知。 */
     context: { eventBus: EventBus<CoreEventMap>, pipeline?: PipelineRunner<unknown> }
-    personaRegistry: PersonaRegistry
-    conversationStore: ConversationStore
   }
-  brain?: BrainService
   config: Config
   logger: CognitionLoggerLike
 }
@@ -96,7 +73,7 @@ export interface CognitionPluginRuntime {
 }
 
 export function createCognitionPluginRuntime(options: CognitionPluginRuntimeOptions): CognitionPluginRuntime {
-  const { runtime, brain, config, logger } = options
+  const { runtime, config, logger } = options
 
   logger.info('cognition plugin apply started', {
     plugin: 'elysia-ai-cognition',
@@ -104,169 +81,113 @@ export function createCognitionPluginRuntime(options: CognitionPluginRuntimeOpti
   })
 
   const eventBus = runtime.context.eventBus
+  const histories = new BoundedCache<string, EventHistory>(300)
+
+  // 被过滤事件限频告警（60s/类型）：排查"静默丢事件"的关键观测（vtuber 经验）。
+  const lastFilteredWarnAt = new Map<string, number>()
+  const FILTERED_WARN_INTERVAL_MS = 60_000
+
+  const getHistory = (lifeId: string, habitatId: string): EventHistory => {
+    const key = scopeKey(lifeId, habitatId)
+    const existing = histories.get(key)
+    if (existing) return existing
+    const created = new EventHistory({
+      maxEvents: config.events.history.maxEvents,
+      windowMs: config.events.history.windowMs,
+    })
+    histories.set(key, created)
+    return created
+  }
+
+  const warnFiltered = (key: string, stimulusId: string): void => {
+    const now = Date.now()
+    const last = lastFilteredWarnAt.get(key) ?? 0
+    if (now - last < FILTERED_WARN_INTERVAL_MS) return
+    lastFilteredWarnAt.set(key, now)
+    logger.warn?.(`event "${key}" filtered by enabledEvents config`, undefined, {
+      plugin: 'elysia-ai-cognition',
+      phase: 'ingest',
+      eventKey: key,
+      stimulusId,
+    })
+  }
+
   const service: CognitionService = {
-    async reason(context: CognitionContext) {
-      return reasonWithAi(context, config, brain, logger)
+    ingest(stimulus, lifeId) {
+      if (!config.events.enabled) return null
+      // 合成触发刺激（behavior 唤醒产物）不作为事件入账：它不是"世界发生的事"，
+      // 且入账会造成自我循环（wake → mention 事件 → 再唤醒）。
+      if (stimulus.metadata?.triggerSource) return null
+
+      const event = stimulusToTriggerEvent(stimulus)
+      if (!event) {
+        logger.debug('stimulus produced no catalog event; skipping ingest', {
+          plugin: 'elysia-ai-cognition',
+          phase: 'ingest',
+          stimulusId: stimulus.id,
+          type: stimulus.type,
+        })
+        return null
+      }
+      if (!isEventEnabled(event.key, { enabledEvents: config.events.enabledEvents })) {
+        warnFiltered(event.key, stimulus.id)
+        return null
+      }
+
+      getHistory(lifeId, stimulus.habitatId).record(event)
+      void eventBus.emit('cognition.event.recorded', {
+        stimulusId: stimulus.id,
+        lifeId,
+        habitatId: stimulus.habitatId,
+        event,
+      })
+      return event
     },
+
+    buildFeed(lifeId, habitatId, feedOptions) {
+      return getHistory(lifeId, habitatId).buildFeedLines({
+        feedInclude: config.events.feed.include,
+        maxEvents: feedOptions?.maxEvents ?? config.events.feed.maxEvents,
+      })
+    },
+
+    getRecentEvents(lifeId, habitatId, limit) {
+      return getHistory(lifeId, habitatId).recent(limit)
+    },
+
     getDiagnostics(): CapabilityDiagnostics {
       return {
         plugin: 'elysia-ai-cognition',
-        enabled: true,
+        enabled: config.events.enabled,
         ready: true,
         serviceName: 'elysia.cognition',
         metadata: {
-          aiEnhanced: config.aiEnhanced,
-          hasBrainService: Boolean(brain),
+          trackedScopes: histories.size,
+          feedMaxEvents: config.events.feed.maxEvents,
         },
       }
     },
   }
-  const stimulusCache = new BoundedCache<string, Stimulus>()
-  const perceptionCache = new BoundedCache<string, PerceptionResult>()
-  const homeostasisCache = new Map<string, HomeostasisState>()
 
-  // homeostasis 是跨刺激的生命状态（非管线数据），两种装配下都用事件缓存。
-  const disposeHomeostasis = eventBus.on('homeostasis.updated', ({ lifeInstanceId, state }) => {
-    homeostasisCache.set(lifeInstanceId, state)
-  })
-
-  // 单生命推理：钩子装配（单生命一次）与事件装配（循环 lifeIds）共用。
-  const reasonForLife = async (
-    stimulus: Stimulus,
-    lifeId: string,
-    perception: PerceptionResult | undefined,
-    stimulusId: string,
-    writeResult?: (result: CognitionResult) => void,
-  ): Promise<void> => {
-    const lifeStimulus: Stimulus = { ...stimulus, lifeId }
-    const homeostasis = homeostasisCache.get(lifeId)
-
-    logger.debug('cognition reasoning started', {
-      plugin: 'elysia-ai-cognition',
-      phase: 'cognition',
-      event: 'projection.routed',
-      stimulusId,
-      lifeId,
-      type: stimulus.type,
-      actorId: stimulus.actorId,
-      hasPerception: Boolean(perception),
-      hasHomeostasis: Boolean(homeostasis),
-    })
-
-    const cognitionContext = buildCognitionContext(
-      lifeStimulus,
-      runtime.personaRegistry,
-      runtime.conversationStore,
-      config,
-      perception,
-      homeostasis,
-    )
-
-    try {
-      await eventBus.emit('cognition.reasoning', {
-        stimulusId,
-        lifeId: cognitionContext.lifeId,
-        scopeKey: cognitionContext.scopeKey,
-      })
-
-      const result = await service.reason(cognitionContext)
-
-      logger.info('cognition completed', {
-        plugin: 'elysia-ai-cognition',
-        phase: 'cognition',
-        stimulusId,
-        lifeId: result.lifeId,
-        scopeKey: result.scopeKey,
-        salience: result.salience,
-        continuity: result.continuity,
-        shouldEnterBehavior: result.shouldEnterBehavior,
-        reason: result.reason,
-        mode: result.metadata?.mode,
-      })
-
-      // 管线模式下写入共享上下文，供 behavior 阶段直接读取。
-      writeResult?.(result)
-
-      await eventBus.emit('cognition.completed', result)
-    } catch (error) {
-      logger.error('cognition failed for life; remaining lives will still be processed', error, {
-        plugin: 'elysia-ai-cognition',
-        phase: 'cognition',
-        event: 'projection.routed',
-        stimulusId,
-        lifeId,
-        type: stimulus.type,
-        actorId: stimulus.actorId,
-      })
-    }
-  }
-
-  // ── 装配：钩子优先，事件兜底（单包测试/旧宿主无 pipeline 时）──
+  // ── 装配：kernel 管线阶段钩子（主链单轨）──
   const pipeline = runtime.context.pipeline
   const disposers: Array<() => void> = []
 
-  if (pipeline) {
-    disposers.push(pipeline.registerHook({
-      stage: STAGE_COGNITION,
-      owner: 'elysia-ai-cognition',
-      async run(pctx) {
-        const { stimulus, lifeId } = pctx.core as { stimulus: Stimulus, lifeId: string }
-        // 感知结果经父链从刺激段上下文读取。
-        const perception = pctx.read<PerceptionResult>(NS_PERCEPTION)
-        await reasonForLife(stimulus, lifeId, perception, stimulus.id, (result) => {
-          pctx.write(NS_COGNITION, result)
-        })
-      },
-    }))
-  } else {
-    const disposeStimulus = eventBus.on('stimulus.received', ({ stimulusId, stimulus }) => {
-      stimulusCache.set(stimulusId, stimulus)
-    })
-
-    const disposePerception = eventBus.on('perception.completed', ({ stimulusId, result }) => {
-      perceptionCache.set(stimulusId, result)
-    })
-
-    const disposeProjection = eventBus.on('projection.routed', async ({ stimulusId, routing }) => {
-      const stimulus = stimulusCache.get(stimulusId)
-
-      if (!stimulus) {
-        logger.error('stimulus not found in cache for cognition reasoning', {
-          plugin: 'elysia-ai-cognition',
-          phase: 'cognition',
-          stimulusId,
-        })
-        return
-      }
-
-      if (routing.lifeIds.length === 0) {
-        logger.debug('no life matched for stimulus, skipping cognition reasoning', {
-          plugin: 'elysia-ai-cognition',
-          phase: 'cognition',
-          stimulusId,
-          reason: routing.reason,
-        })
-        return
-      }
-
-      const perception = perceptionCache.get(stimulusId)
-
-      for (const lifeId of routing.lifeIds) {
-        await reasonForLife(stimulus, lifeId, perception, stimulusId)
-      }
-    })
-
-    disposers.push(disposeStimulus, disposePerception, disposeProjection)
-  }
-  disposers.push(disposeHomeostasis)
+  disposers.push(pipeline.registerHook({
+    stage: STAGE_COGNITION,
+    owner: 'elysia-ai-cognition',
+    run(pctx) {
+      const { stimulus, lifeId } = pctx.core as { stimulus: Stimulus, lifeId: string }
+      service.ingest(stimulus, lifeId)
+    },
+  }))
 
   return {
     service,
     dispose() {
       for (const dispose of disposers) dispose()
-      stimulusCache.clear()
-      perceptionCache.clear()
-      homeostasisCache.clear()
+      histories.clear()
+      lastFilteredWarnAt.clear()
       logger.info('cognition plugin disposed', {
         plugin: 'elysia-ai-cognition',
         phase: 'dispose',

@@ -1,7 +1,9 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import {
+  ELYSIA_PIPELINE_STAGES,
   MemoryEventBus,
+  PipelineRunner,
   type BrainService,
   type CoreEventMap,
   type ConversationStore,
@@ -33,8 +35,11 @@ function createLogger() {
 }
 
 function createRuntime() {
+  // 主链单轨：工厂契约测试同样走管线钩子装配（与 DefaultRuntime 的补齐方式一致）
+  const pipeline = new PipelineRunner<unknown>({ onError: () => {} })
+  for (const stage of ELYSIA_PIPELINE_STAGES) pipeline.registerStage(stage)
   return {
-    context: { eventBus: new MemoryEventBus<CoreEventMap>() },
+    context: { eventBus: new MemoryEventBus<CoreEventMap>(), pipeline },
   }
 }
 
@@ -114,10 +119,11 @@ describe('Phase 42 internal factory contracts', () => {
       runtime: { ...createRuntime(), personaRegistry: createPersonaRegistry() },
       config: {
         enableReply: true,
-        directWindowMs: 1500,
-        userBufferedWindowMs: 2500,
-        threadBufferedWindowMs: 3500,
-        habitatBufferedWindowMs: 5000,
+        batcher: { quietWindowMs: 8_000, dmQuietWindowMs: 1_500, maxWaitMs: 30_000, densityWindowMs: 10_000, densityThreshold: 15, maxBatch: 50 },
+        packMemory: { maxPacks: 12, injectPacks: 2 },
+        commands: [],
+        instantRules: [],
+        triggers: { enabled: true, adminWhitelist: [], maxTasksPerOwner: 20, repository: 'memory' },
       },
       logger: createLogger(),
     }))
@@ -128,14 +134,9 @@ describe('Phase 42 internal factory contracts', () => {
       runtime: createRuntime(),
       brain: createBrain(),
       config: {
-        maxInputTokens: 8192,
         enabledIntentClassify: true,
         enabledEntityExtract: true,
         enabledSentiment: true,
-        aiEnhanced: false,
-        aiFallbackToRuleBased: true,
-        aiMinTextLength: 12,
-        aiModelSlot: '',
       },
       logger: createLogger(),
     }))
@@ -150,17 +151,11 @@ describe('Phase 42 internal factory contracts', () => {
       },
       brain: createBrain(),
       config: {
-        recentConversationLimit: 12,
-        salienceDirectMentionBonus: 0.35,
-        salienceDirectMessageBonus: 0.25,
-        salienceReplyBonus: 0.2,
-        salienceQuestionBonus: 0.15,
-        salienceLengthFactor: 0.001,
-        behaviorThreshold: 0.35,
-        aiEnhanced: false,
-        aiFallbackToRuleBased: true,
-        aiMinSalience: 0.2,
-        aiModelSlot: '',
+        events: {
+          enabled: true,
+          feed: { maxEvents: 30 },
+          history: { maxEvents: 100, windowMs: 1_800_000 },
+        },
       },
       logger: createLogger(),
     }))
@@ -194,8 +189,6 @@ describe('Phase 42 internal factory contracts', () => {
         curiosityDecayPerTick: 0.002,
         maxValue: 1,
         minValue: 0,
-        responseThresholdMin: 0.3,
-        responseThresholdMax: 0.8,
         restoreOnStartup: true,
       },
       logger: createLogger(),
