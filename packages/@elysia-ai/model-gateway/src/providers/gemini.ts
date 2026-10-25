@@ -5,9 +5,11 @@ import {
   createProviderApiError,
   fetchWithTimeout,
   normalizeGeminiFinishReason,
+  providerWireFormat,
   readResponseBody,
 } from './utils.js'
 import { toMaheshvaraRequest } from './maheshvara-bridge.js'
+import { extractToolCalls } from './extract-tool-calls.js'
 
 const DEFAULT_ENDPOINT = '/v1beta'
 
@@ -22,7 +24,8 @@ export function createGeminiProvider(config: ProviderConfig): Provider {
 
   const maxTokens = config.maxTokens ?? 4096
   const temperature = config.temperature ?? 0.7
-  const timeoutMs = config.timeoutMs
+  // 默认超时兜底：provider 挂死会阻塞同 habitat 串行队列（全部后续消息排队等死）
+  const timeoutMs = config.timeoutMs ?? 120_000
 
   return {
     id: config.id,
@@ -38,40 +41,48 @@ export function createGeminiProvider(config: ProviderConfig): Provider {
         model,
         maxTokens: request.maxTokens ?? maxTokens,
         temperature: request.temperature ?? temperature,
+        ...(config.maxTokensField ? { maxTokensField: config.maxTokensField } : {}),
       })
       const timeout = request.timeoutMs ?? timeoutMs
 
-      const url = `${fullBaseUrl}/models/${model}:generateContent?key=${config.apiKey}`
+      // P2-11：密钥改 x-goog-api-key 头（官方支持）——此前 ?key= 明文进
+      // URL：落入代理/访问日志与错误 diagnostics，且含 &/+/# 等字符会被截断。
+      const url = `${fullBaseUrl}/models/${encodeURIComponent(model)}:generateContent`
       const body = encodeGenerateContentRequest(maheshvara)
 
       const startedAt = Date.now()
       const res = await fetchWithTimeout(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'x-goog-api-key': config.apiKey,
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify(body),
       }, timeout, config.id)
 
       if (!res.ok) {
         const responseBody = await readResponseBody(res)
-        throw createHttpProviderError('Gemini', config.id, res, responseBody)
+        throw createHttpProviderError('Gemini', config.id, res, responseBody, providerWireFormat('gemini'))
       }
 
       const json = await res.json() as any
 
       if (json.error) {
-        throw createProviderApiError('Gemini', config.id, json, json.error.code)
+        throw createProviderApiError('Gemini', config.id, json, json.error.code, providerWireFormat('gemini'))
       }
 
       const maheshvaraResponse = decodeGenerateContentResponse(json)
       const output = extractMessageText(maheshvaraResponse)
+      const toolCalls = extractToolCalls(maheshvaraResponse)
       const finishReason = normalizeGeminiFinishReason(maheshvaraResponse.stop_reason)
       const latencyMs = Date.now() - startedAt
 
       return {
         output,
+        toolCalls: toolCalls.length ? toolCalls : undefined,
         messages: [
           ...request.messages,
-          { role: 'assistant', content: output },
+          { role: 'assistant', content: output, ...(toolCalls.length ? { toolCalls } : {}) },
         ],
         provider: {
           id: config.id,

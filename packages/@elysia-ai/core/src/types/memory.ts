@@ -279,7 +279,6 @@ export interface MemoryUpdateRequest {
 
   importance?: number
   confidence?: number
-  salience?: number
   decay?: number
 
   stimulusSummary?: string

@@ -355,3 +355,38 @@ describe('elysia-api 深度更新同步（v0.2.0）', () => {
     }
   })
 })
+
+describe('elysia-api v1.4.0 同步：错误分类与 system 块回放', () => {
+  it('RawExtra.claude_system_blocks 存在时原样回放块数组（保块级 cache_control）', () => {
+    const blocks = [
+      { type: 'text', text: 'persona', cache_control: { type: 'ephemeral' } },
+      { type: 'text', text: 'tools' },
+    ]
+    const body = encodeMessagesRequest({
+      model: 'claude-x',
+      instructions: 'flattened text',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      RawExtra: { claude_system_blocks: blocks },
+    })
+    expect(body['system']).toEqual(blocks)
+  })
+
+  it('无原始块时退回拼接文本', () => {
+    const body = encodeMessagesRequest({
+      model: 'claude-x',
+      instructions: 'flattened text',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+    })
+    expect(body['system']).toBe('flattened text')
+  })
+
+  it('流式 error 事件按 anthropic type 反推分类', () => {
+    const decoder = new AnthropicStreamDecoder()
+    const overloaded = decoder.decode(sse('{"type":"error","error":{"type":"overloaded_error","message":"busy"}}'))
+    expect(overloaded[0].error?.class).toBe('overloaded')
+
+    const decoder2 = new AnthropicStreamDecoder()
+    const unknown = decoder2.decode(sse('{"type":"error","error":{"type":"weird","message":"x"}}'))
+    expect(unknown[0].error?.class).toBe('upstream')
+  })
+})

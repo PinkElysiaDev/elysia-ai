@@ -332,12 +332,18 @@ export interface MaheshvaraUsage {
   provider?: string
 }
 
-/** 统一错误。 */
+/**
+ * 统一错误。
+ * class 为稳定分类（errors.ts 的 ErrorClass 值域），四线制的 type/status/code
+ * 均由它派生；status 携带上游真实 HTTP 状态码（0/未设 = 按分类推导）。
+ */
 export interface MaheshvaraError {
   message: string
   type?: string
   param?: string
   code?: string
+  class?: string
+  status?: number
   details?: unknown
   raw?: Record<string, unknown>
 }

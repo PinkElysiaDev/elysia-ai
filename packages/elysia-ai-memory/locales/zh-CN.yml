@@ -2,14 +2,6 @@ $description:
   enabled: 启用记忆能力。
   contextLimit: 注入对话的记忆条数上限。
   maxEntriesPerLife: 每个生命体的记忆条数上限（留空不限制）。
-  repository: 仓储配置。
-  repository.type: 仓储类型：memory 为内存（重启即丢，适合开发）；mongo 为持久化。
-  repository.mongo: Mongo 仓储选项。
-  repository.mongo.uri: MongoDB 连接 URL（用户自部署）。填写后即启用 mongo 仓储。
-  repository.mongo.database: MongoDB 数据库名（默认 elysia_ai）。
-  repository.mongo.collectionName: Mongo 集合名。
-  repository.mongo.indexes: 启动时确保 Mongo 索引。
 
 $name:
   基础设置: 基础设置
-  高级：持久化仓储: 高级：持久化仓储

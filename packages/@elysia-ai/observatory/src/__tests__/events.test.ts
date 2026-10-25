@@ -58,30 +58,12 @@ describe('elysia-ai-observatory events', () => {
       },
     })
 
-    await eventBus.emit('behavior.selected', {
+    await eventBus.emit('behavior.trigger.fired', {
       stimulusId: 'stimulus-1',
-      scope: { type: 'user', key: 'user-1' },
-      decision: 'send-to-ai',
-      plan: {
-        scope: { type: 'user', key: 'user-1' },
-        sourceStimulusIds: ['stimulus-1'],
-        mode: 'send-to-ai',
-        plannerSource: 'program',
-        shouldEnterDialogue: true,
-        shouldUpdateMemory: true,
-        shouldUpdateBond: true,
-        shouldUpdateHomeostasis: true,
-        shouldScheduleFollowup: false,
-        reason: 'test',
-      },
-      signal: {
-        directness: 1,
-        continuity: 0,
-        bondAffinity: 0,
-        bufferPressure: 0,
-        responseNecessity: 1,
-        structuralDeterminability: 1,
-      },
+      lifeId: 'life-1',
+      habitatId: 'habitat-1',
+      source: 'batcher',
+      reason: 'quiet',
     })
 
     const task: any = {
@@ -106,7 +88,7 @@ describe('elysia-ai-observatory events', () => {
 
     expect(trace?.events.map((event: any) => event.event)).toEqual([
       'stimulus.received',
-      'behavior.selected',
+      'behavior.trigger.fired',
       'dialogue.completed',
     ])
   })

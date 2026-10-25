@@ -3,6 +3,10 @@ import type {
   DialogueTask,
 } from '@elysia-ai/core'
 import type { PlatformMessage } from '../types/index.js'
+import { HabitatSendRegistry } from './habitat-send-registry.js'
+
+export { HabitatSendRegistry } from './habitat-send-registry.js'
+export type { HabitatSendEntry } from './habitat-send-registry.js'
 
 export interface PlatformSendTarget {
   platform?: string
@@ -82,21 +86,32 @@ export class OutboundRouteRegistry {
 export function createPlatformSendTaskFromDialogue(
   task: DialogueTask,
   result: DialogueResult,
-  route?: OutboundRoute
+  route?: OutboundRoute,
+  options?: { content?: string }
 ): PlatformSendTask {
   const sourceStimulusId = route?.sourceStimulusId ?? task.sourceStimulusIds[0]
 
+  // 合成触发刺激没有入站路由：behavior 在 task.metadata.routing 携带
+  // habitat 目标（platform/channelId 等），route 缺失时作为发送目标来源。
+  const routing = (task.metadata?.routing ?? {}) as {
+    platform?: string
+    botId?: string
+    guildId?: string
+    channelId?: string
+  }
+
   return {
     target: {
-      platform: route?.message.platform,
-      botId: route?.message.botId,
-      guildId: route?.message.guildId,
-      channelId: route?.message.channelId,
+      platform: route?.message.platform ?? routing.platform,
+      botId: route?.message.botId ?? routing.botId,
+      guildId: route?.message.guildId ?? routing.guildId,
+      channelId: route?.message.channelId ?? routing.channelId,
       userId: route?.message.userId,
       habitatId: task.habitatId,
       sourceStimulusId,
     },
-    content: result.output,
+    // agentic 多段发言时每条 output 携带自己的段文本；单段/旧路径与 result.output 等价
+    content: options?.content ?? result.output,
     metadata: {
       taskId: result.taskId,
       dialogueMode: task.mode,
@@ -106,20 +121,50 @@ export function createPlatformSendTaskFromDialogue(
   }
 }
 
+export type DirectSendFn = (
+  target: { platform?: string, botId?: string, channelId?: string, guildId?: string },
+  content: string,
+) => Promise<void>
+
 export class RouteMessageSender implements MessageSender {
-  constructor(private readonly routes: OutboundRouteRegistry) {}
+  constructor(
+    private readonly routes: OutboundRouteRegistry,
+    /** habitat 级回退：合成触发刺激（批量/定时唤醒）没有入站路由时按平台通道发送。 */
+    private readonly habitatRoutes?: HabitatSendRegistry,
+    /** 终极兜底：经 koishi bot 直发（冷启动时 habitat 注册表也无 send 闭包） */
+    private readonly directSend?: DirectSendFn,
+  ) {}
 
   async send(task: PlatformSendTask): Promise<void> {
     const sourceStimulusId = task.target.sourceStimulusId
-    if (!sourceStimulusId) {
-      throw new Error('sourceStimulusId is required for route-based sending')
+
+    if (sourceStimulusId) {
+      const route = this.routes.get(sourceStimulusId)
+      if (route) {
+        await route.send(task.content)
+        return
+      }
     }
 
-    const route = this.routes.get(sourceStimulusId)
-    if (!route) {
-      throw new Error(`Outbound route not found for stimulus "${sourceStimulusId}"`)
+    // habitat 回退：route 缺失（合成触发刺激 / FIFO 淘汰）时按 platform+channelId 解析
+    const fallback = this.habitatRoutes?.resolve(task.target.platform, task.target.channelId)
+    if (fallback) {
+      await fallback.send(task.content)
+      return
     }
 
-    await route.send(task.content)
+    // 直发兜底：重启后定时任务唤醒（habitat 注册表为空）按 platform+channelId 经 bot 发送
+    if (this.directSend && task.target.platform && task.target.channelId) {
+      await this.directSend(
+        { platform: task.target.platform, botId: task.target.botId, channelId: task.target.channelId, guildId: task.target.guildId },
+        task.content,
+      )
+      return
+    }
+
+    throw new Error(
+      `Outbound route not found for stimulus "${sourceStimulusId ?? '(none)'}" `
+      + `(platform=${task.target.platform ?? '?'}, channelId=${task.target.channelId ?? '?'})`,
+    )
   }
 }

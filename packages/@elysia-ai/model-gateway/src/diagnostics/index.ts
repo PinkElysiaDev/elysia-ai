@@ -8,6 +8,8 @@ export interface GatewayAttemptDiagnostics {
   latencyMs?: number
   ok: boolean
   errorCode?: string
+  /** maheshvara 稳定错误分类（与 observatory errorKind 同值域）。 */
+  errorClass?: string
   statusCode?: number
   retryable?: boolean
 }
@@ -82,6 +84,7 @@ export function recordGatewayAttemptFailure(
     latencyMs: attempt.latencyMs,
     ok: false,
     errorCode: providerError?.code ?? (attempt.error instanceof Error ? attempt.error.name : 'unknown-error'),
+    errorClass: providerError?.class,
     statusCode: providerError?.statusCode,
     retryable: providerError?.retryable ?? true,
   })

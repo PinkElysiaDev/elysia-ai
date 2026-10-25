@@ -179,7 +179,7 @@ function asGenerationConfig(out: Record<string, unknown>): Record<string, unknow
   return cfg
 }
 
-function maheshvaraMessagesToGemini(req: MaheshvaraRequest): Array<Record<string, unknown>> {
+export function maheshvaraMessagesToGemini(req: MaheshvaraRequest): Array<Record<string, unknown>> {
   // functionResponse.name 必须是函数名而非 tool_use_id：先建 id→name 映射。
   const toolCallNames = new Map<string, string>()
   for (const msg of req.messages ?? []) {

@@ -12,6 +12,7 @@ import {
   CONTENT_IMAGE,
   CONTENT_REASONING,
   CONTENT_TEXT,
+  CONTENT_TOOL_OUTPUT,
   CONTENT_VIDEO,
   INPUT_FUNCTION_CALL_OUTPUT,
   TOOL_FUNCTION,
@@ -49,13 +50,49 @@ function maheshvaraTextOf(parts: MaheshvaraContentPart[] | undefined): string {
   return out
 }
 
-export function maheshvaraToolCallsToResponsesItems(calls: MaheshvaraToolCall[] | undefined): Array<Record<string, unknown>> {
+/**
+ * tool/function 消息的输出文本：优先 tool_output 部件载荷（桥接层的标准形态），
+ * 回退纯 text 部件拼接（decode 侧重建形态）。此前只看 text 部件——
+ * 桥接的 tool 消息输出恒为空串，function_call_output 丢失工具结果。
+ */
+function maheshvaraToolOutputOf(parts: MaheshvaraContentPart[] | undefined): string {
+  let out = ''
+  let sawToolOutput = false
+  for (const part of parts ?? []) {
+    if (part.type === CONTENT_TOOL_OUTPUT) {
+      sawToolOutput = true
+      out += part.tool_output ?? ''
+    }
+  }
+  return sawToolOutput ? out : maheshvaraTextOf(parts)
+}
+
+export function maheshvaraToolCallsToResponsesItems(
+  calls: MaheshvaraToolCall[] | undefined,
+  msgIndex = 0,
+): Array<Record<string, unknown>> {
   const items: Array<Record<string, unknown>> = []
+  let callIndex = -1
   for (const call of calls ?? []) {
-    const callID = (call.id ?? '').trim()
+    callIndex += 1
+    let callID = (call.id ?? '').trim()
     const name = (call.name ?? '').trim()
-    if (callID === '' || name === '') continue
-    let args = typeof call.arguments === 'string' ? call.arguments.trim() : ''
+    if (name === '') continue
+    // P2-16：缺 id 不再静默丢弃（对应 function_call_output 失配 → 上游 400），
+    // 参照 openai 侧 ensureToolCallID 合成确定性 id。
+    if (callID === '') callID = `call_${msgIndex}_${callIndex}`
+    // P2-17：非字符串 arguments（anthropic decode 产出对象）防御性 stringify，
+    // 此前对象静默变 '{}' 导致跨 provider 多轮工具参数全丢。
+    let args = ''
+    if (typeof call.arguments === 'string') {
+      args = call.arguments.trim()
+    } else if (call.arguments !== undefined && call.arguments !== null) {
+      try {
+        args = JSON.stringify(call.arguments)
+      } catch {
+        args = ''
+      }
+    }
     if (args === '') args = '{}'
     items.push({ type: 'function_call', call_id: callID, name, arguments: args })
   }
@@ -137,7 +174,23 @@ function rawResponsesInputItem(rawExtra: Record<string, unknown> | undefined): R
   return undefined
 }
 
-function maheshvaraInputToResponses(req: MaheshvaraRequest): Array<Record<string, unknown>> {
+/**
+ * P2-16：与 maheshvaraToolCallsToResponsesItems 的空 id 合成规则严格一致
+ * （callIndex 对每个 call 递增、name 为空跳过、空 id 合成 call_${msgIndex}_${callIndex}），
+ * 收集会被合成的 call_id，供后续空 tool_call_id 的 tool 消息回填配对。
+ */
+function collectSynthesizedCallIDs(calls: MaheshvaraToolCall[] | undefined, msgIndex: number): string[] {
+  const ids: string[] = []
+  let callIndex = -1
+  for (const call of calls ?? []) {
+    callIndex += 1
+    if ((call.name ?? '').trim() === '') continue
+    if ((call.id ?? '').trim() === '') ids.push(`call_${msgIndex}_${callIndex}`)
+  }
+  return ids
+}
+
+export function maheshvaraInputToResponses(req: MaheshvaraRequest): Array<Record<string, unknown>> {
   if ((req.input_items?.length ?? 0) > 0) {
     const items: Array<Record<string, unknown>> = []
     for (const item of req.input_items!) {
@@ -159,13 +212,24 @@ function maheshvaraInputToResponses(req: MaheshvaraRequest): Array<Record<string
   }
 
   const items: Array<Record<string, unknown>> = []
+  let msgIndex = -1
+  // P2-16：assistant tool_calls 空 id 合成的 call_id 登记为待回填队列；
+  // 后续空 tool_call_id 的 tool 消息按 FIFO 领取同一合成 id，
+  // 保证 function_call 与 function_call_output 的 call_id 配对一致（否则上游 400）。
+  const pendingSynthesizedCallIDs: string[] = []
   for (const msg of req.messages ?? []) {
+    msgIndex += 1
     const role = (msg.role ?? '').trim().toLowerCase()
     if (role === '' || role === 'system' || role === 'developer') continue
     if (role === 'tool' || role === 'function') {
       const callID = (msg.tool_call_id ?? '').trim()
-      const output = maheshvaraTextOf(msg.content)
+      const output = maheshvaraToolOutputOf(msg.content)
       if (callID === '') {
+        const synthesized = pendingSynthesizedCallIDs.shift()
+        if (synthesized !== undefined) {
+          items.push({ type: 'function_call_output', call_id: synthesized, output })
+          continue
+        }
         items.push({ role: 'user', content: [{ type: 'input_text', text: `[tool_output_missing_call_id] ${output}` }] })
         continue
       }
@@ -177,7 +241,8 @@ function maheshvaraInputToResponses(req: MaheshvaraRequest): Array<Record<string
       items.push({ role: responsesInputRole(role), content })
     }
     if (role === 'assistant') {
-      items.push(...maheshvaraToolCallsToResponsesItems(msg.tool_calls))
+      items.push(...maheshvaraToolCallsToResponsesItems(msg.tool_calls, msgIndex))
+      pendingSynthesizedCallIDs.push(...collectSynthesizedCallIDs(msg.tool_calls, msgIndex))
     }
   }
   return items

@@ -122,7 +122,7 @@ export function ensureClaudeToolCallID(id: string | undefined, msgIndex: number,
   return `call_${msgIndex}_${callIndex}`
 }
 
-function maheshvaraMessagesToClaude(req: MaheshvaraRequest): Array<Record<string, unknown>> {
+export function maheshvaraMessagesToClaude(req: MaheshvaraRequest): Array<Record<string, unknown>> {
   const messages: Array<Record<string, unknown>> = []
   let msgIndex = -1
   for (const msg of req.messages ?? []) {
@@ -275,6 +275,26 @@ export function maheshvaraToolChoiceToClaude(value: unknown): unknown {
   return { type: choice }
 }
 
+/**
+ * parallel_tool_calls=false 时并入 tool_choice 的 disable_parallel_tool_use
+ * 标记（Go applyClaudeDisableParallelToolUse）：未给 tool_choice 时补 auto
+ * 形态；type=none 不加（none 无并行语义）。
+ */
+export function applyClaudeDisableParallelToolUse(toolChoice: unknown, parallel: boolean | undefined): unknown {
+  if (parallel === undefined || parallel === true) return toolChoice
+  if (typeof toolChoice !== 'object' || toolChoice === null || Array.isArray(toolChoice)) {
+    if (toolChoice !== undefined && toolChoice !== null) return toolChoice
+    const object: Record<string, unknown> = { type: 'auto' }
+    object['disable_parallel_tool_use'] = true
+    return object
+  }
+  const object = toolChoice as Record<string, unknown>
+  if (String(object['type'] ?? '').trim().toLowerCase() !== 'none') {
+    object['disable_parallel_tool_use'] = true
+  }
+  return object
+}
+
 function applyClaudeRequestExtensions(out: Record<string, unknown>, req: MaheshvaraRequest): void {
   if (req.top_k !== undefined) out['top_k'] = req.top_k
   if (req.metadata !== undefined) out['metadata'] = req.metadata
@@ -302,8 +322,15 @@ export function encodeMessagesRequest(req: MaheshvaraRequest): Record<string, un
     // 调用方显式给出的值原样使用（含较小值）。
     max_tokens: (req.max_output_tokens ?? 0) > 0 ? req.max_output_tokens : CLAUDE_DEFAULT_MAX_TOKENS,
   }
-  const instructions = collectInstructions(req)
-  if (instructions !== '') out['system'] = instructions
+  // 优先原样回放 Claude 客户端的 system 块数组（保住块级 cache_control
+  // 标记——拍平成纯文本会让缓存省钱设置静默失效）；无原始块时退回拼接文本。
+  const rawSystemBlocks = req.RawExtra?.['claude_system_blocks']
+  if (rawSystemBlocks !== undefined && rawSystemBlocks !== null && (Array.isArray(rawSystemBlocks) ? rawSystemBlocks.length > 0 : true)) {
+    out['system'] = rawSystemBlocks
+  } else {
+    const instructions = collectInstructions(req)
+    if (instructions !== '') out['system'] = instructions
+  }
   if (req.temperature !== undefined) out['temperature'] = req.temperature
   if (req.top_p !== undefined) out['top_p'] = req.top_p
   if (req.stream) out['stream'] = true
@@ -313,8 +340,14 @@ export function encodeMessagesRequest(req: MaheshvaraRequest): Record<string, un
     out['stop_sequences'] = typeof req.stop === 'string' ? [req.stop] : req.stop
   }
   if ((req.tools?.length ?? 0) > 0) out['tools'] = maheshvaraToolsToClaude(req.tools!)
-  if (req.tool_choice !== undefined && req.tool_choice !== null) {
-    out['tool_choice'] = maheshvaraToolChoiceToClaude(req.tool_choice)
+  // parallel_tool_calls=false 时并入 tool_choice 的 disable_parallel_tool_use 标记
+  // （Go applyClaudeDisableParallelToolUse）：未显式禁用时 Anthropic 默认并行。
+  const toolChoice = applyClaudeDisableParallelToolUse(
+    req.tool_choice !== undefined && req.tool_choice !== null ? maheshvaraToolChoiceToClaude(req.tool_choice) : undefined,
+    req.parallel_tool_calls,
+  )
+  if (toolChoice !== undefined && toolChoice !== null) {
+    out['tool_choice'] = toolChoice
   }
   if (req.thinking?.enabled) {
     if (req.thinking.adaptive) {

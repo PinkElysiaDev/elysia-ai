@@ -218,7 +218,7 @@ describe('Phase 45 Operational Surface', () => {
     apply(ctx, { enabled: true, maxRecords: 100 })
 
     delete ctx['elysia.modelGateway']
-    delete ctx['elysia-ai-model-gateway']
+    delete ctx['elysia.modelGateway']
 
     expect(runCommand(commands, 'elysia.gateway.status')).toBe('Model gateway service not loaded.')
     expect(runCommand(commands, 'elysia.repository.status')).toContain('Elysia Repository Status')

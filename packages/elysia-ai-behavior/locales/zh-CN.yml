@@ -1,10 +1,21 @@
 $description:
   enableReply: 是否允许主动回复消息。关闭后生命体只观察、更新内部状态，但不出声。
-  directWindowMs: 被直接点名（@ 或私聊）后，多久内的后续消息合并为一次回应（毫秒）。越大越倾向凑齐再回。
-  userBufferedWindowMs: 同一用户连续发言的攒话窗口（毫秒）。
-  threadBufferedWindowMs: 同一话题串的攒话窗口（毫秒）。
-  habitatBufferedWindowMs: 整个群聊场景的攒话窗口（毫秒）。
+  batcher: 密度合并器（何时唤醒 LLM）：群聊静默 quietWindowMs / 私聊静默 dmQuietWindowMs 触发唤醒，maxWaitMs 封顶必发，密度阈值与单批上限防刷屏久等。
+  batcher.quietWindowMs: 群聊静默窗口（毫秒）：距最近事件静默该时长即触发一次 LLM 唤醒。
+  batcher.dmQuietWindowMs: 私聊静默窗口（毫秒）：私聊一问一答不应久等，默认近即时。
+  batcher.maxWaitMs: 批最大等待（毫秒）：批首事件起封顶必发。0 = 不设。
+  batcher.densityWindowMs: 密度统计窗口（毫秒）。
+  batcher.densityThreshold: 密度阈值：窗口内事件数达到即立即触发。0 = 不启用。
+  batcher.maxBatch: 单批条数上限，达到立即触发。0 = 不限。
+  packMemory: 短期记忆（events pack 存档）：maxPacks 存档最近 N 次触发时的世界快照，唤醒提示注入最近 injectPacks 次（0 = 关闭注入，模型仍可用工具回看）。
+  commands: 指令直达（第一层，零 LLM 成本）：别名前缀匹配直发回执模板。
+  instantRules: 即时应对规则（第二层，缺省被@必应、私聊必应）：关键词/正则命中后模板直发或插队唤醒。
+  triggers: 定时触发器（第四层）：enabled 总开关、adminWhitelist 管理白名单、maxTasksPerOwner 每用户配额、repository 存储模式（auto=按 runtime 持久化配置自动选 mongo，memory=强制内存）。
 
 $name:
   基础设置: 基础设置
-  高级：行为节奏调参: 高级：行为节奏调参
+  密度合并器（何时唤醒 LLM）: 密度合并器
+  短期记忆（events pack 存档）: 短期记忆
+  指令直达（零 LLM 成本层）: 指令直达
+  即时应对规则（默认：被@必应、私聊必应）: 即时应对规则
+  定时触发器: 定时触发器

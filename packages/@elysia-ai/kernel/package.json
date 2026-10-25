@@ -1,5 +1,5 @@
 {
-  "version": "0.1.0",
+  "version": "0.1.1",
   "name": "@elysia-ai/kernel",
   "description": "Elysia A.I. 通用子框架内核：类型化事件总线、阶段化管线编排（DAG+优先级）、请求级上下文、生命周期相位、插件 manifest 兼容治理、trace 与测试 harness。零依赖、宿主无关，可独立于 AI 领域被任何 Koishi/cordis 应用复用。",
   "main": "lib/index.cjs",

@@ -75,7 +75,9 @@ describe('Phase 33 Provider Parity Productionization', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
-    expect(url).toBe('https://gemini.example/v1beta/models/gemini-1.5-pro:generateContent?key=gemini-key')
+    // P2-11：密钥改 x-goog-api-key 头，不再进 URL
+    expect(url).toBe('https://gemini.example/v1beta/models/gemini-1.5-pro:generateContent')
+    expect((init.headers as Record<string, string>)['x-goog-api-key']).toBe('gemini-key')
     expect(init.method).toBe('POST')
 
     const body = JSON.parse(init.body as string)

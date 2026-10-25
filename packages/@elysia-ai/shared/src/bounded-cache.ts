@@ -32,6 +32,16 @@ export class BoundedCache<K, V> {
     this.store.clear()
   }
 
+  /** 全部值快照（按 LRU 访问序，最近访问在后；不刷新访问序）。 */
+  values(): V[] {
+    return [...this.store.values()]
+  }
+
+  /** 全部键快照（不刷新访问序）。 */
+  keys(): K[] {
+    return [...this.store.keys()]
+  }
+
   get size(): number {
     return this.store.size
   }

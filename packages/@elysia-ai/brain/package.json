@@ -1,10 +1,9 @@
 {
-  "version": "0.2.0",
+  "version": "0.2.2",
   "name": "@elysia-ai/brain",
   "main": "lib/index.js",
   "type": "module",
   "types": "lib/index.d.ts",
-  "private": true,
   "license": "AGPL-3.0-or-later",
   "repository": {
     "type": "git",
@@ -29,10 +28,10 @@
     "build": "tsc -p tsconfig.json && esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=lib/index.cjs --external:@elysia-ai/core --external:@elysia-ai/model-gateway --external:@elysia-ai/shared --external:koishi-plugin-elysia-ai-runtime"
   },
   "dependencies": {
-    "@elysia-ai/core": "^0.2.0",
-    "@elysia-ai/model-gateway": "^0.2.0",
-    "@elysia-ai/shared": "^0.2.0",
-    "koishi-plugin-elysia-ai-runtime": "^0.2.0"
+    "@elysia-ai/core": "^0.2.1",
+    "@elysia-ai/model-gateway": "^0.3.0",
+    "@elysia-ai/shared": "^0.2.1",
+    "koishi-plugin-elysia-ai-runtime": "^0.2.1"
   },
   "peerDependencies": {
     "koishi": "^4.18.0"

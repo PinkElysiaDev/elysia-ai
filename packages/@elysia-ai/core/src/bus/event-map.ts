@@ -4,11 +4,7 @@ import type {
   ModelGatewayResponse,
 } from '../brain/model-gateway.js'
 import type {
-  BehaviorCandidate,
-  BehaviorDecision,
   BehaviorExecutionInstruction,
-  BehaviorScope,
-  BehaviorSignal,
 } from '../types/behavior.js'
 import type {
   BehaviorExecutionAction,
@@ -27,7 +23,7 @@ import type {
   BondUpdateRequest,
   BondUpdateResult,
 } from '../types/bond.js'
-import type { CognitionResult } from '../types/cognition.js'
+import type { TriggerEvent, TriggerWakeSource } from '../types/events.js'
 import type { DialogueResult, DialogueTask } from '../types/dialogue.js'
 import type {
   HomeostasisDelta,
@@ -49,7 +45,6 @@ import type {
 } from '../types/memory.js'
 import type { PerceptionResult } from '../types/perception.js'
 import type { ProjectionRoutingResult, ProjectionRule } from '../types/projection.js'
-import type { ScheduledTask } from '../types/scheduler.js'
 import type { Stimulus } from '../types/stimulus.js'
 
 export interface SenderTask {
@@ -85,7 +80,13 @@ export interface CoreEventMap {
 
   // Stimulus / 状态事件
   'stimulus.received': { stimulusId: string; stimulus: Stimulus }
-  'projection.routed': { stimulusId: string; routing: ProjectionRoutingResult }
+  'projection.routed': {
+    stimulusId: string
+    routing: ProjectionRoutingResult
+    /** 刺激来源标记（homeostasis 等旁路消费者过滤合成/系统刺激用） */
+    triggerSource?: string
+    stimulusType?: string
+  }
   'projection.rule.updated': { ruleId: string; rule: ProjectionRule }
   'projection.rule.disabled': { ruleId: string; rule: ProjectionRule }
   'projection.rule.removed': { ruleId: string }
@@ -107,59 +108,21 @@ export interface CoreEventMap {
     actionId?: string
   }
 
-  // Scheduler 事件
-  'scheduler.task.created': { taskId: string; task: ScheduledTask }
-  'scheduler.task.started': { taskId: string; task: ScheduledTask }
-  'scheduler.task.completed': { taskId: string; task: ScheduledTask }
-  'scheduler.task.failed': { taskId: string; task: ScheduledTask; error: unknown }
-  'scheduler.task.cancelled': { taskId: string; task: ScheduledTask; reason?: string }
-  'scheduler.task.expired': { taskId: string; task: ScheduledTask }
-
-  // Cognition 事件
-  'cognition.reasoning': {
+  // Cognition 事件（事件注入层）
+  'cognition.event.recorded': {
     stimulusId: string
-    lifeId?: string
-    scopeKey?: string
+    lifeId: string
+    habitatId: string
+    event: TriggerEvent
   }
-  'cognition.completed': CognitionResult
 
   // Behavior 事件
-  'behavior.candidates.generated': {
+  'behavior.trigger.fired': {
+    lifeId: string
+    habitatId: string
+    source: TriggerWakeSource
+    reason: string
     stimulusId: string
-    scope: BehaviorScope
-    candidates: BehaviorCandidate[]
-    signal: BehaviorSignal
-  }
-  'behavior.selected': {
-    stimulusId: string
-    lifeId?: string
-    scope: BehaviorScope
-    decision:
-      | 'discard'
-      | 'buffer'
-      | 'internal-update-only'
-      | 'program-direct'
-      | 'send-to-ai'
-    plan: {
-      scope: BehaviorScope
-      sourceStimulusIds: string[]
-      mode:
-        | 'discard'
-        | 'buffer'
-        | 'internal-update-only'
-        | 'program-direct'
-        | 'send-to-ai'
-      plannerSource: 'program' | 'ai' | 'hybrid'
-      shouldEnterDialogue: boolean
-      shouldUpdateMemory: boolean
-      shouldUpdateBond: boolean
-      shouldUpdateHomeostasis: boolean
-      shouldScheduleFollowup: boolean
-      reason: string
-    }
-    signal: BehaviorSignal
-    candidates?: BehaviorCandidate[]
-    behaviorDecision?: BehaviorDecision
   }
 
   /**
@@ -205,15 +168,6 @@ export interface CoreEventMap {
     planId: string
     plan: BehaviorExecutionPlan
     error: unknown
-  }
-  'behavior.followup.scheduled': {
-    stimulusId: string
-    lifeId?: string
-    candidateId?: string
-    taskId: string
-    task: ScheduledTask
-    planId?: string
-    actionId?: string
   }
   'behavior.memory.update.requested': {
     request: MemoryUpdateRequest

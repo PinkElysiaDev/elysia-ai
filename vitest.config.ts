@@ -1,5 +1,6 @@
 ﻿import { defineConfig } from 'vitest/config'
 import { resolve } from 'node:path'
+import { configDefaults } from 'vitest/config'
 
 export default defineConfig({
   test: {
@@ -11,6 +12,8 @@ export default defineConfig({
       'packages/@elysia-ai/*/src/__tests__/**/*.ts',
       '__tests__/**/*.ts',
     ],
+    // __tests__/helpers/ 是共享测试基建（如忠实 Mongo fake），非测试文件
+    exclude: [...configDefaults.exclude, '__tests__/helpers/**'],
     globals: true,
     environment: 'node',
     reporters: ['verbose'],
@@ -21,7 +24,9 @@ export default defineConfig({
       '@elysia-ai/protocol-anthropic': resolve(__dirname, 'packages/@elysia-ai/protocol-anthropic/src/index.ts'),
       '@elysia-ai/protocol-gemini': resolve(__dirname, 'packages/@elysia-ai/protocol-gemini/src/index.ts'),
       '@elysia-ai/protocol-responses': resolve(__dirname, 'packages/@elysia-ai/protocol-responses/src/index.ts'),
+      '@elysia-ai/protocol-custom': resolve(__dirname, 'packages/@elysia-ai/protocol-custom/src/index.ts'),
       '@elysia-ai/core': resolve(__dirname, 'packages/@elysia-ai/core/src/index.ts'),
+      '@elysia-ai/trigger': resolve(__dirname, 'packages/@elysia-ai/trigger/src/index.ts'),
       '@elysia-ai/shared': resolve(__dirname, 'packages/@elysia-ai/shared/src/index.ts'),
       '@elysia-ai/behavior': resolve(__dirname, 'packages/@elysia-ai/behavior/src/index.ts'),
       '@elysia-ai/bond': resolve(__dirname, 'packages/@elysia-ai/bond/src/index.ts'),

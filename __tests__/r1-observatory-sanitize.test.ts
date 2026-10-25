@@ -58,6 +58,35 @@ describe('R1 observatory 脱敏字段覆盖', () => {
     expect(meta?.content).toEqual({ length: 4 })
   })
 
+  it('触发器新载荷：currentUserContent 唤醒提示全文不泄露', () => {
+    const service = new DefaultObservatoryService()
+    const serialized = recordedMetadata(service, 'behavior.instruction', {
+      instruction: {
+        actions: [{ type: 'dialogue', task: { metadata: { currentUserContent: '【指令】SECRET_WAKE_PROMPT_with_event_feed' } } }],
+      },
+    })
+    expect(serialized).not.toContain('SECRET_WAKE_PROMPT_with_event_feed')
+  })
+
+  it('触发器新载荷：agentic.segments 逐字回复不泄露', () => {
+    const service = new DefaultObservatoryService()
+    const serialized = recordedMetadata(service, 'dialogue.completed', {
+      result: { metadata: { agentic: { segments: ['SECRET_REPLY_SEGMENT_1', 'SECRET_REPLY_SEGMENT_2'] } } },
+    })
+    expect(serialized).not.toContain('SECRET_REPLY_SEGMENT_1')
+    expect(serialized).not.toContain('SECRET_REPLY_SEGMENT_2')
+  })
+
+  it('触发器新载荷：rawContent / quoteContent / directive 不泄露', () => {
+    const service = new DefaultObservatoryService()
+    const serialized = recordedMetadata(service, 'cognition.event.recorded', {
+      event: { payload: { rawContent: 'SECRET_RAW', quoteContent: 'SECRET_QUOTE', directive: 'SECRET_DIRECTIVE' } },
+    })
+    expect(serialized).not.toContain('SECRET_RAW')
+    expect(serialized).not.toContain('SECRET_QUOTE')
+    expect(serialized).not.toContain('SECRET_DIRECTIVE')
+  })
+
   it('apiKey/secret 仍被 redact（无回归）', () => {
     const service = new DefaultObservatoryService()
     const serialized = recordedMetadata(service, 'gateway.failed', {

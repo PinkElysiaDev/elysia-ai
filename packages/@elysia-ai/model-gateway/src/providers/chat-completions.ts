@@ -1,6 +1,7 @@
 import { decodeChatCompletionsResponse, encodeChatCompletionsRequest, extractMessageText } from '@elysia-ai/protocol-openai'
 import type { Provider, ProviderConfig, ProviderRequest, ProviderResponse } from './types.js'
-import { createHttpProviderError, createProviderApiError, fetchWithTimeout, readResponseBody } from './utils.js'
+import { createHttpProviderError, createProviderApiError, fetchWithTimeout, providerWireFormat, readResponseBody } from './utils.js'
+import { extractToolCalls } from './extract-tool-calls.js'
 import { toMaheshvaraRequest } from './maheshvara-bridge.js'
 
 const DEFAULT_ENDPOINT = '/v1'
@@ -16,7 +17,8 @@ export function createChatCompletionsProvider(config: ProviderConfig): Provider 
 
   const maxTokens = config.maxTokens ?? 4096
   const temperature = config.temperature ?? 0.7
-  const timeoutMs = config.timeoutMs
+  // 默认超时兜底：provider 挂死会阻塞同 habitat 串行队列（全部后续消息排队等死）
+  const timeoutMs = config.timeoutMs ?? 120_000
 
   return {
     id: config.id,
@@ -32,6 +34,7 @@ export function createChatCompletionsProvider(config: ProviderConfig): Provider 
         model,
         maxTokens: request.maxTokens ?? maxTokens,
         temperature: request.temperature ?? temperature,
+        ...(config.maxTokensField ? { maxTokensField: config.maxTokensField } : {}),
       })
       const timeout = request.timeoutMs ?? timeoutMs
 
@@ -50,25 +53,27 @@ export function createChatCompletionsProvider(config: ProviderConfig): Provider 
 
       if (!res.ok) {
         const responseBody = await readResponseBody(res)
-        throw createHttpProviderError('Chat Completions', config.id, res, responseBody)
+        throw createHttpProviderError('Chat Completions', config.id, res, responseBody, providerWireFormat('chat-completions'))
       }
 
       const json = await res.json() as any
 
       if (json.error) {
-        throw createProviderApiError('Chat Completions', config.id, json)
+        throw createProviderApiError('Chat Completions', config.id, json, undefined, providerWireFormat('chat-completions'))
       }
 
       const maheshvaraResponse = decodeChatCompletionsResponse(json)
       const output = extractMessageText(maheshvaraResponse)
+      const toolCalls = extractToolCalls(maheshvaraResponse)
       const finishReason = maheshvaraResponse.stop_reason ?? 'unknown'
       const latencyMs = Date.now() - startedAt
 
       return {
         output,
+        toolCalls: toolCalls.length ? toolCalls : undefined,
         messages: [
           ...request.messages,
-          { role: 'assistant', content: output },
+          { role: 'assistant', content: output, ...(toolCalls.length ? { toolCalls } : {}) },
         ],
         provider: {
           id: config.id,

@@ -19,6 +19,7 @@ import {
 import type {
   ContextBudgetPlanner,
 } from './context-budget.js'
+export * from './tool-loop.js'
 
 export const internalName = 'elysia-ai-brain'
 
@@ -229,6 +230,9 @@ export class DefaultBrainService implements BrainService {
         habitatId: request.habitatId,
         slot: resolvedSlot,
         messages: gatewayMessages,
+        tools: request.tools,
+        toolChoice: request.toolChoice,
+        parallelToolCalls: request.parallelToolCalls,
         metadata: {
           ...request.metadata,
           source: 'elysia-ai-brain',
@@ -265,6 +269,7 @@ export class DefaultBrainService implements BrainService {
       const response: BrainResponse = {
         output: gatewayResponse.output,
         messages: gatewayResponse.messages,
+        toolCalls: gatewayResponse.toolCalls,
         capability,
         metadata: {
           ...gatewayResponse.metadata,

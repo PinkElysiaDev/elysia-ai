@@ -80,7 +80,6 @@ function stimulusSummary(input: BehaviorExecutionPlannerInput): string | undefin
 export function createBehaviorExecutionPlan(input: BehaviorExecutionPlannerInput): BehaviorExecutionPlan {
   const now = input.now ?? Date.now()
   const maxAttempts = input.actionMaxAttempts ?? 1
-  const followupDelayMs = input.followupDelayMs ?? 60_000
   const actions: BehaviorExecutionAction[] = []
 
   if (input.plan.shouldEnterDialogue) {
@@ -89,55 +88,6 @@ export function createBehaviorExecutionPlan(input: BehaviorExecutionPlannerInput
       100,
       {
         task: buildDialogueTask(input),
-      },
-      now,
-      maxAttempts,
-      {
-        reason: input.plan.reason,
-      },
-    ))
-  }
-
-  if (input.plan.shouldScheduleFollowup) {
-    actions.push(createAction(
-      'schedule-followup',
-      80,
-      {
-        request: {
-          id: createId('followup-request', now),
-          stimulusId: input.stimulus.id,
-          lifeId: input.lifeId,
-          runAt: now + followupDelayMs,
-          delayMs: followupDelayMs,
-          stimulus: {
-            ...input.stimulus,
-            id: `${input.stimulus.id}:followup:${now}`,
-            // followup 是调度器主动"唤醒"生命体处理缓冲消息的刺激：
-            // 用 addressing + isMentioned 让它必然越过 discard/buffer 路由
-            // 与 cognition 门控，直接进入 program-direct 立即回复。
-            // （此前 type:'system' 会被 router 直接 discard，followup 永远
-            // 不会产生回复。）
-            type: 'addressing',
-            isMentioned: true,
-            timestamp: now + followupDelayMs,
-            lifeId: input.lifeId,
-            payload: {
-              ...input.stimulus.payload,
-              content: stimulusSummary(input) ?? 'follow-up stimulus',
-              followupOf: input.stimulus.id,
-              followupReason: input.plan.reason,
-            },
-            metadata: {
-              ...input.stimulus.metadata,
-              generatedBy: 'behavior-execution-plan',
-              originalStimulusId: input.stimulus.id,
-            },
-          },
-          reason: input.plan.reason,
-          candidateId: input.selectedCandidate?.id,
-          decisionId: input.behaviorDecision?.id,
-          metadata: input.metadata,
-        },
       },
       now,
       maxAttempts,
@@ -159,17 +109,18 @@ export function createBehaviorExecutionPlan(input: BehaviorExecutionPlannerInput
           actorId: input.stimulus.actorId,
           habitatId: input.stimulus.habitatId,
           threadId: input.stimulus.threadId,
-          scope: input.stimulus.actorId ? 'actor' : 'life',
+          // W3：scope 提示与 inferOwnerType 实际推断对齐——无 actorId 时记忆
+          // 归 habitat 级（此前 'life' 与实际 ownerType 不一致会误导下游提示）。
+          scope: input.stimulus.actorId ? 'actor' : 'habitat',
           kind: 'episodic',
-          content: stimulusSummary(input),
-          importance: input.selectedCandidate?.priority,
-          salience: input.selectedCandidate?.confidence,
+          // 唤醒场景 stimulus.payload.content 可能只有指令或为空：
+          // 记忆内容优先用唤醒摘要（currentUserContent），避免落入
+          // "Memory update from stimulus <id>" 无信息量占位串。
+          content: input.currentUserContent ?? stimulusSummary(input),
           stimulusSummary: stimulusSummary(input),
-          decisionSummary: input.behaviorDecision?.reason ?? input.plan.reason,
+          decisionSummary: input.plan.reason,
           createdAt: now,
           metadata: {
-            candidateId: input.selectedCandidate?.id,
-            decisionId: input.behaviorDecision?.id,
             plannerSource: input.plan.plannerSource,
           },
         },
@@ -196,13 +147,7 @@ export function createBehaviorExecutionPlan(input: BehaviorExecutionPlannerInput
           actorId: input.stimulus.actorId,
           habitatId: input.stimulus.habitatId,
           threadId: input.stimulus.threadId,
-          interactionType: input.selectedCandidate?.type,
-          deltaSuggestion: input.selectedCandidate?.confidence,
           createdAt: now,
-          metadata: {
-            candidateId: input.selectedCandidate?.id,
-            decisionId: input.behaviorDecision?.id,
-          },
         },
       },
       now,
@@ -227,16 +172,11 @@ export function createBehaviorExecutionPlan(input: BehaviorExecutionPlannerInput
             energy: -0.02,
             sociability: input.plan.shouldEnterDialogue ? -0.01 : 0,
             curiosity: input.plan.shouldScheduleFollowup ? 0.02 : 0,
-            responseThreshold: input.plan.shouldEnterDialogue ? 0.01 : 0,
           },
           source: {
             stimulusId: input.stimulus.id,
           },
           createdAt: now,
-          metadata: {
-            candidateId: input.selectedCandidate?.id,
-            decisionId: input.behaviorDecision?.id,
-          },
         },
       },
       now,
@@ -274,13 +214,9 @@ export function createBehaviorExecutionPlan(input: BehaviorExecutionPlannerInput
     botId: input.stimulus.botId,
     scope: input.plan.scope,
     scopeKey: input.plan.scope.key,
-    decisionId: input.behaviorDecision?.id,
-    selectedCandidateId: input.selectedCandidate?.id,
     plan: input.plan,
-    decision: input.behaviorDecision,
-    selectedCandidate: input.selectedCandidate,
     actions: actions.sort((a, b) => b.priority - a.priority),
-    priority: input.selectedCandidate?.priority ?? 0,
+    priority: 0,
     status: 'pending',
     createdAt: now,
     metadata: input.metadata,

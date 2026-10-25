@@ -175,3 +175,13 @@ describe('elysia-api 深度更新同步（v0.2.0）', () => {
     })
   })
 })
+
+describe('elysia-api v1.4.0 同步：错误分类', () => {
+  it('promptFeedback 阻断的失败事件携带 invalid_request 分类', () => {
+    const decoder = new GeminiStreamDecoder()
+    const events = decoder.decode(sse('{"promptFeedback":{"blockReason":"SAFETY"}}'))
+    const failed = events.find((e) => e.type === 'response.failed')
+    expect(failed?.error?.class).toBe('invalid_request')
+    expect(failed?.error?.type).toBe('content_filter')
+  })
+})

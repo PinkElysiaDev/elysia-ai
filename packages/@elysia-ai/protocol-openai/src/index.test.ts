@@ -297,3 +297,82 @@ describe('ChatCompletionsStreamDecoder', () => {
     expect(events.find((e) => e.type === 'response.completed')?.finish_reason).toBe('content_filter')
   })
 })
+
+describe('elysia-api v1.4.0 同步：错误分类与遗留 function calling', () => {
+  it('RawExtra.max_tokens_field 指定时回写 max_completion_tokens 字段名', () => {
+    const base: MaheshvaraRequest = {
+      model: 'o-preview',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      max_output_tokens: 512,
+    }
+    const modern = encodeChatCompletionsRequest({ ...base })
+    expect(modern['max_tokens']).toBe(512)
+    expect(modern['max_completion_tokens']).toBeUndefined()
+
+    const oseries = encodeChatCompletionsRequest({ ...base, RawExtra: { max_tokens_field: 'max_completion_tokens' } })
+    expect(oseries['max_completion_tokens']).toBe(512)
+    expect(oseries['max_tokens']).toBeUndefined()
+  })
+
+  it('legacy_function 标记的工具分流到 functions 数组，现代工具仍走 tools', () => {
+    const body = encodeChatCompletionsRequest({
+      model: 'gpt',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      tools: [
+        { type: 'function', name: 'modern_tool', description: 'd', parameters: { type: 'object' } },
+        {
+          type: 'function',
+          name: 'old_tool',
+          description: 'legacy',
+          parameters: { type: 'object', properties: {} },
+          raw: { legacy_function: true },
+        },
+      ],
+    })
+    const tools = body['tools'] as Array<Record<string, unknown>>
+    const functions = body['functions'] as Array<Record<string, unknown>>
+    expect(tools).toHaveLength(1)
+    expect((tools[0]['function'] as Record<string, unknown>)['name']).toBe('modern_tool')
+    expect(functions).toHaveLength(1)
+    expect(functions[0]['name']).toBe('old_tool')
+    expect(functions[0]['parameters']).toEqual({ type: 'object', properties: {} })
+  })
+
+  it('legacy_function 标记的调用还原为消息级 function_call 单对象', () => {
+    const body = encodeChatCompletionsRequest({
+      model: 'gpt',
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+        {
+          role: 'assistant',
+          tool_calls: [{
+            type: 'function',
+            name: 'old_tool',
+            arguments: '{"a":1}',
+            raw: { legacy_function: true },
+          }],
+        },
+      ],
+    })
+    const assistant = (body['messages'] as Array<Record<string, unknown>>)[1]
+    expect(assistant['function_call']).toEqual({ name: 'old_tool', arguments: '{"a":1}' })
+    expect(assistant['tool_calls']).toBeUndefined()
+  })
+
+  it('finish_reason=error 的失败事件携带 upstream 分类', () => {
+    const decoder = new ChatCompletionsStreamDecoder()
+    const events = decoder.decode(sse('{"choices":[{"index":0,"delta":{},"finish_reason":"error"}]}'))
+    const failed = events.find((e) => e.type === 'response.failed')
+    expect(failed?.error?.type).toBe('upstream_stream_error')
+    expect(failed?.error?.class).toBe('upstream')
+  })
+
+  it('[DONE] 缺 finish 的失败事件不带分类（对齐 Go 零值）', () => {
+    const decoder = new ChatCompletionsStreamDecoder()
+    decoder.decode(sse('{"choices":[{"index":0,"delta":{"role":"assistant"}}]}'))
+    const events = decoder.decode(sse('[DONE]'))
+    const failed = events.find((e) => e.type === 'response.failed')
+    expect(failed?.error?.type).toBe('upstream_stream_error')
+    expect(failed?.error?.class).toBeUndefined()
+  })
+})

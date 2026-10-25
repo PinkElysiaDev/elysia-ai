@@ -15,7 +15,7 @@ interface ElementLike {
  * - quote：不注入正文（避免引用内容重复污染感知/LLM），由调用方单独提取
  * - 其余标记（image/file 等）：无文本贡献，子元素继续递归
  */
-function elementToPlainText(element: ElementLike): string {
+export function elementToPlainText(element: ElementLike): string {
   if (element.type === 'text') {
     return String(element.attrs?.content ?? '')
   }
@@ -77,6 +77,7 @@ export function sessionToPlatformMessage(session: Session): PlatformMessage {
     guildId: session.guildId,
     channelId: session.channelId,
     userId: session.userId,
+    username: session.username || session.event?.user?.name,
     content,
     rawContent,
     timestamp: session.timestamp,

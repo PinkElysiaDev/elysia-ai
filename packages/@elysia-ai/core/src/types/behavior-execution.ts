@@ -1,9 +1,8 @@
-import type { BehaviorCandidate, BehaviorDecision, BehaviorScope, ResponsePlan } from './behavior.js'
+import type { BehaviorScope, ResponsePlan } from './behavior.js'
 import type { BondUpdateRequest } from './bond.js'
 import type { DialogueTask } from './dialogue.js'
 import type { HomeostasisUpdateRequest } from './homeostasis.js'
 import type { MemoryUpdateRequest } from './memory.js'
-import type { ScheduledTask } from './scheduler.js'
 import type { Stimulus } from './stimulus.js'
 
 export type BehaviorExecutionStatus =
@@ -22,7 +21,6 @@ export type BehaviorExecutionActionStatus =
 
 export type BehaviorExecutionActionType =
   | 'dialogue'
-  | 'schedule-followup'
   | 'memory-update'
   | 'bond-update'
   | 'homeostasis-update'
@@ -66,11 +64,7 @@ export interface BehaviorExecutionPlan {
   botId?: string
   scope: BehaviorScope
   scopeKey?: string
-  decisionId?: string
-  selectedCandidateId?: string
   plan: ResponsePlan
-  decision?: BehaviorDecision
-  selectedCandidate?: BehaviorCandidate
   actions: BehaviorExecutionAction[]
   priority: number
   status: BehaviorExecutionStatus
@@ -91,7 +85,6 @@ export interface BehaviorExecutionActionResult {
   startedAt: number
   completedAt: number
   error?: unknown
-  scheduledTask?: ScheduledTask
   emittedEvent?: string
   metadata?: Record<string, unknown>
 }
@@ -106,19 +99,6 @@ export interface BehaviorExecutionResult {
   error?: unknown
   metadata?: Record<string, unknown>
 }
-export interface BehaviorFollowupScheduleRequest {
-  id: string
-  stimulusId: string
-  lifeId?: string
-  runAt: number
-  delayMs: number
-  stimulus?: Stimulus
-  reason: string
-  candidateId?: string
-  decisionId?: string
-  metadata?: Record<string, unknown>
-}
-
 export interface BehaviorExecutionService {
   execute(plan: BehaviorExecutionPlan): Promise<BehaviorExecutionResult>
 }
@@ -127,17 +107,13 @@ export interface BehaviorExecutionPlannerInput {
   stimulus: Stimulus
   lifeId: string
   plan: ResponsePlan
-  behaviorDecision?: BehaviorDecision
-  selectedCandidate?: BehaviorCandidate
   currentUserContent?: string
   now?: number
-  followupDelayMs?: number
   actionMaxAttempts?: number
   metadata?: Record<string, unknown>
 }
 
 export interface BehaviorExecutionPolicy {
-  followupDelayMs: number
   actionMaxAttempts: number
   failurePolicy: 'continue' | 'stop-on-critical'
 }

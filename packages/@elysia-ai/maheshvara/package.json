@@ -1,5 +1,5 @@
 {
-  "version": "0.2.0",
+  "version": "0.3.0",
   "name": "@elysia-ai/maheshvara",
   "description": "Elysia A.I. maheshvara 统一模型：跨协议（OpenAI Chat Completions / OpenAI Responses / Anthropic / Gemini）的请求、响应、流事件类型约定，以及与传输无关的 SSE 帧解析器。类型与 Elysia-Api（Go）relay 层的 maheshvara 规范逐字段对齐。",
   "main": "lib/index.cjs",

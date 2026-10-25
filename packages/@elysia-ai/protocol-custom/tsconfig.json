@@ -1,0 +1,31 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib",
+    "emitDeclarationOnly": false
+  },
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "src/**/*.test.ts"
+  ],
+  "references": [
+    {
+      "path": "../maheshvara"
+    },
+    {
+      "path": "../protocol-openai"
+    },
+    {
+      "path": "../protocol-anthropic"
+    },
+    {
+      "path": "../protocol-gemini"
+    },
+    {
+      "path": "../protocol-responses"
+    }
+  ]
+}

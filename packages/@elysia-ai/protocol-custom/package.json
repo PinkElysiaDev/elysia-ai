@@ -1,0 +1,44 @@
+{
+  "version": "0.3.0",
+  "name": "@elysia-ai/protocol-custom",
+  "description": "Elysia A.I. 自定义协议引擎：协议即数据——JSON 配置描述任意供应商线制（请求体注解树 / 响应路径映射 / 流式帧映射 / 别名系统 / 四线 preset）。与 Elysia-Api（Go）v1.4.0 custom_protocol* 引擎逐行为对齐。",
+  "main": "lib/index.cjs",
+  "module": "lib/index.js",
+  "type": "module",
+  "types": "lib/index.d.ts",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PinkElysiaDev/elysia-ai.git"
+  },
+  "homepage": "https://github.com/PinkElysiaDev/elysia-ai",
+  "bugs": {
+    "url": "https://github.com/PinkElysiaDev/elysia-ai/issues"
+  },
+  "author": "PinkElysiaDev",
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=lib/index.cjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js",
+      "require": "./lib/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@elysia-ai/maheshvara": "^0.3.0",
+    "@elysia-ai/protocol-anthropic": "^0.3.0",
+    "@elysia-ai/protocol-gemini": "^0.3.0",
+    "@elysia-ai/protocol-openai": "^0.3.0",
+    "@elysia-ai/protocol-responses": "^0.3.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.23.1",
+    "typescript": "^5.0.0"
+  }
+}

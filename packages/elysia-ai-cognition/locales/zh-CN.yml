@@ -1,18 +1,12 @@
 $description:
-  behaviorThreshold: 回应意愿阈值：显著性高于此值才会进入行为决策。越低越话痨，越高越沉默。
-  aiEnhanced: 启用 AI 增强认知推理（需在 model-gateway 配置模型槽位）。
-  recentConversationLimit: 参与显著性判断的最近对话条数。
-  salienceDirectMentionBonus: 被 @ 点名时提升的回应意愿。
-  salienceDirectMessageBonus: 私聊场景提升的回应意愿。
-  salienceReplyBonus: 消息是对本体的回复时提升的回应意愿。
-  salienceQuestionBonus: 消息是疑问句时提升的回应意愿。
-  salienceLengthFactor: 消息长度对回应意愿的加权系数。
-  aiFallbackToRuleBased: AI 推理失败时回退到规则判断。
-  aiMinSalience: 触发 AI 增强的最低显著性门槛。
-  aiModelSlot: AI 认知推理使用的模型槽位名（在 model-gateway 中配置），留空则使用默认槽位。
+  events.enabled: 事件接收总开关（关闭后不记录任何事件，触发器也随之失效）。
+  events.enabledEvents: 按事件目录 key 启停单类事件的记录。
+  events.feed.include: 按事件目录 key 控制事件清单呈现哪些事件行。
+  events.feed.maxEvents: 事件清单最多呈现的事件行数。
+  events.history.maxEvents: 每会话事件历史的条数上限。
+  events.history.windowMs: 事件历史的时间窗（毫秒，默认 30 分钟）。
 
 $name:
-  基础设置: 基础设置
-  高级：认知处理: 高级：认知处理
-  显著性调参: 显著性调参
-  AI 增强: AI 增强
+  事件注入配置: 事件注入配置
+  事件清单（events 变量）: 事件清单（events 变量）
+  事件历史: 事件历史

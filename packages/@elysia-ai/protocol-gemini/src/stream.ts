@@ -12,6 +12,7 @@ import {
   CONTENT_IMAGE,
   CONTENT_TEXT,
   CONTENT_TOOL_OUTPUT,
+  ERROR_CLASS_INVALID_REQUEST,
   EVENT_CONTENT_PART_ADDED,
   EVENT_FUNCTION_CALL_ADDED,
   EVENT_FUNCTION_CALL_ARGUMENTS_DONE,
@@ -75,6 +76,10 @@ export class GeminiStreamDecoder {
   private sawOutput = false
   private sawFinishReason = false
   private nextSyntheticCallID = 0
+  // P2-15：跨 chunk 单调 part 计数器（per choice）——partIndex 是 chunk 内
+  // 序号（每块从 0 重计），消费端按 (choice_index, content_index) 聚合时
+  // 不同 chunk 的 part 0 会被误并为同一 part。
+  private readonly nextPartIndex = new Map<number, number>()
   private readonly finishedChoices = new Set<number>()
   private readonly seenChoices = new Set<number>()
 
@@ -160,9 +165,11 @@ export class GeminiStreamDecoder {
       let groundingEmitted = false
       const content = asRecord(candidate['content']) ?? {}
       const parts = asArray(content['parts']) ?? []
-      parts.forEach((partValue, partIndex) => {
+      parts.forEach((partValue, chunkPartIndex) => {
         const part = asRecord(partValue)
         if (!part) return
+        const partIndex = this.nextPartIndex.get(choiceIndex) ?? 0
+        this.nextPartIndex.set(choiceIndex, partIndex + 1)
         const signature = firstNonEmptyString(stringValue(part['thoughtSignature']), stringValue(part['thought_signature']))
         if (signature !== '') {
           const signatureEvent = this.baseEvent(EVENT_REASONING_SIGNATURE_DELTA, raw)
@@ -284,6 +291,7 @@ export class GeminiStreamDecoder {
         failedEvent.error = {
           message: `Gemini request blocked: ${stringValue(feedback['blockReason'])}`,
           type: 'content_filter',
+          class: ERROR_CLASS_INVALID_REQUEST,
           raw: feedback,
         }
         events.push(failedEvent)

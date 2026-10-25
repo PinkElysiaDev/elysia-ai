@@ -9,6 +9,8 @@ import type {
 import type { CircuitBreakerConfig, FallbackConfig, ModelGatewayConfig, ModelProviderConfig, ModelProviderSlotConfig, RetryConfig, SlotDeclaration } from './config/index.js'
 import type { ProviderConfig, ProviderResponse } from './providers/types.js'
 import { ProviderError } from './providers/types.js'
+import { resolveProtocolDefinition } from './providers/custom.js'
+import { CUSTOM_PROTOCOL_PRESETS } from '@elysia-ai/protocol-custom'
 import {
   createGatewayDiagnostics,
   finalizeGatewayDiagnostics,
@@ -75,7 +77,14 @@ function isRetryableError(error: unknown): boolean {
   if (error instanceof ProviderError) {
     return error.retryable
   }
-  return true
+  // P2-10 白名单：仅网络/超时类原始错误可重试。此前非 ProviderError 一律
+  // 可重试——res.json() 的 SyntaxError（200 返回 HTML/截断体）会白重试 3 次
+  // 并击穿熔断。decode 断言、解析错误走 invalid-response(retryable:false)。
+  if (error instanceof Error) {
+    if (error.name === 'AbortError') return true
+    if (error instanceof TypeError) return true // fetch 网络层（DNS/连接重置）
+  }
+  return false
 }
 
 function formatTimestamp(timestamp: number | undefined): string {
@@ -140,6 +149,7 @@ function formatHealthSnapshot(snapshot: ProviderHealthSnapshot): string {
     `  consecutiveFailures: ${snapshot.consecutiveFailures}`,
     `  averageLatencyMs: ${snapshot.averageLatencyMs ?? 'n/a'}`,
     `  lastErrorCode: ${snapshot.lastErrorCode ?? 'n/a'}`,
+    `  lastErrorClass: ${snapshot.lastErrorClass ?? 'n/a'}`,
     `  lastSuccessAt: ${formatTimestamp(snapshot.lastSuccessAt)}`,
     `  lastFailureAt: ${formatTimestamp(snapshot.lastFailureAt)}`,
   ].join('\n')
@@ -199,6 +209,11 @@ export function formatGatewayFailures(observatory: GatewayFailureEventSource | u
     const finalErrorCode = getNested(diagnostics, ['finalErrorCode'])
       ?? getNested(metadata, ['error', 'code'])
       ?? 'unknown-error'
+    const attempts = Array.isArray(diagnostics?.['attempts'])
+      ? diagnostics['attempts'] as Array<Record<string, unknown>>
+      : []
+    const lastAttemptClass = [...attempts].reverse().find((attempt) => attempt['errorClass'] !== undefined)?.['errorClass']
+    const finalErrorClass = lastAttemptClass ?? getNested(metadata, ['error', 'class'])
     const selectedFallbackSlot = getNested(diagnostics, ['selectedFallbackSlot'])
 
     return [
@@ -206,6 +221,7 @@ export function formatGatewayFailures(observatory: GatewayFailureEventSource | u
       `  provider: ${String(getNested(route, ['providerId']) ?? 'unknown')}`,
       `  slot: ${String(getNested(route, ['slot']) ?? 'unknown')}`,
       `  code: ${String(finalErrorCode)}`,
+      finalErrorClass ? `  class: ${String(finalErrorClass)}` : undefined,
       selectedFallbackSlot ? `  fallback: ${String(selectedFallbackSlot)}` : undefined,
     ].filter(Boolean).join('\n')
   })
@@ -229,7 +245,7 @@ function resolveProviderApiKey(providerId: string, config: ModelProviderConfig):
   return config.apiKey
 }
 
-function toProviderConfig(providerId: string, config: ModelProviderConfig): Omit<ProviderConfig, 'model'> {
+function toProviderConfig(providerId: string, config: ModelProviderConfig, protocols?: Record<string, unknown>): Omit<ProviderConfig, 'model'> {
   return {
     id: providerId,
     type: config.type,
@@ -239,6 +255,11 @@ function toProviderConfig(providerId: string, config: ModelProviderConfig): Omit
     maxTokens: config.maxTokens,
     temperature: config.temperature,
     timeoutMs: config.timeoutMs,
+    maxTokensField: config.maxTokensField,
+    // type=custom：解析协议引用（protocols 字典优先，其次内置 preset id）。
+    protocolConfig: config.type === 'custom'
+      ? resolveProtocolDefinition(config.protocol, protocols, CUSTOM_PROTOCOL_PRESETS)
+      : undefined,
     metadata: config.metadata,
   }
 }
@@ -248,10 +269,11 @@ function registerConfiguredProviderSlot(
   slotName: string,
   slotConfig: ModelProviderSlotConfig,
   providerConfig: ModelProviderConfig,
+  protocols?: Record<string, unknown>,
 ): void {
   const providerId = `slot:${slotName}`
   registry.register({
-    ...toProviderConfig(slotConfig.provider, providerConfig),
+    ...toProviderConfig(slotConfig.provider, providerConfig, protocols),
     id: providerId,
     model: slotConfig.model,
     maxTokens: slotConfig.maxTokens ?? providerConfig.maxTokens,
@@ -268,7 +290,7 @@ function registerConfiguredProviders(registry: ProviderRegistry, config: Config)
     for (const [slotName, slotConfig] of Object.entries(config.providerSlots)) {
       const providerConfig = config.providers?.[slotConfig.provider]
       if (!providerConfig) throw new Error(`model-gateway slot "${slotName}" references unknown provider "${slotConfig.provider}"`)
-      registerConfiguredProviderSlot(registry, slotName, slotConfig, providerConfig)
+      registerConfiguredProviderSlot(registry, slotName, slotConfig, providerConfig, config.protocols)
     }
   }
 }
@@ -390,6 +412,7 @@ export class DefaultModelGatewayService implements ModelGatewayService {
         const response: ModelGatewayResponse = {
           output: providerResponse.output,
           messages: providerResponse.messages,
+          toolCalls: providerResponse.toolCalls,
           provider: providerResponse.provider,
           usage: providerResponse.usage,
           finishReason: providerResponse.finishReason,
@@ -551,12 +574,18 @@ export class DefaultModelGatewayService implements ModelGatewayService {
     this.healthTracker.markProbeStarted(providerId)
 
     let lastError: unknown
+    // P2-9：熔断按请求级计数——一次请求内的重试 attempt 不重复计入
+    // consecutiveFailures（默认 3 次 attempt 连败即误开 30s 熔断）。
+    let healthFailureRecorded = false
     for (let attempt = 0; attempt <= this.retryConfig.maxRetries; attempt++) {
       const attemptStartedAt = Date.now()
       try {
         const response = await provider.execute({
           messages: request.messages,
           model: route.provider.model,
+          tools: request.tools,
+          toolChoice: request.toolChoice,
+          parallelToolCalls: request.parallelToolCalls,
           metadata: request.metadata,
           maxTokens: request.metadata?.maxTokens as number | undefined,
           temperature: request.metadata?.temperature as number | undefined,
@@ -573,7 +602,10 @@ export class DefaultModelGatewayService implements ModelGatewayService {
         return response
       } catch (error) {
         lastError = error
-        this.healthTracker.recordFailure(providerId, error)
+        if (!healthFailureRecorded) {
+          this.healthTracker.recordFailure(providerId, error)
+          healthFailureRecorded = true
+        }
         recordGatewayAttemptFailure(diagnostics, {
           providerId,
           attempt,

@@ -5,6 +5,8 @@ export interface PlatformMessage {
   guildId?: string
   channelId?: string
   userId?: string
+  /** 发送者展示名（feed 行渲染用）。 */
+  username?: string
   /** 纯文本内容：已剥离 Koishi 元素标记（<at/>、<quote/> 等）。 */
   content?: string
   /** 原始 Koishi 元素化文本（调试/审计用）。 */

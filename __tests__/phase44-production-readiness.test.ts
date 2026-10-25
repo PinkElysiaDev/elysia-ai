@@ -20,6 +20,7 @@ import type { MongoMemoryDocument } from '../packages/@elysia-ai/memory/src/inde
 import { MongoMemoryRepository } from '../packages/@elysia-ai/memory/src/index.js'
 import type { MongoBondDocument } from '../packages/@elysia-ai/bond/src/index.js'
 import { MongoBondRepository } from '../packages/@elysia-ai/bond/src/index.js'
+import { applyFindOptions, matchesFilter, type MongoFakeFindOptions } from './helpers/mongo-fake.js'
 import { createObservatoryPluginRuntime } from '../packages/@elysia-ai/observatory/src/index.js'
 
 function createLogger() {
@@ -45,19 +46,14 @@ class FakeMongoCollection<TDocument extends { id: string }> {
   closed = false
 
   async findOne(filter: Record<string, unknown>): Promise<TDocument | null> {
-    if (filter.id) return this.documents.get(String(filter.id)) ?? null
     for (const document of this.documents.values()) {
-      const payload = (document as any).entry ?? (document as any).bond
-      if (filter.lifeId && payload.lifeId !== filter.lifeId) continue
-      if (filter.targetId && payload.targetId !== filter.targetId) continue
-      if (filter.targetType && payload.targetType !== filter.targetType) continue
-      return document
+      if (matchesFilter(document, filter)) return document
     }
     return null
   }
 
-  find(): { toArray(): Promise<TDocument[]> } {
-    return { toArray: async () => [...this.documents.values()] }
+  find(filter: Record<string, unknown>, options?: MongoFakeFindOptions): { toArray(): Promise<TDocument[]> } {
+    return { toArray: async () => applyFindOptions([...this.documents.values()].filter((d) => matchesFilter(d, filter)), options) }
   }
 
   async updateOne(filter: { id: string }, update: { $set: Partial<TDocument>; $setOnInsert: Partial<TDocument> }, _options: { upsert: true }) {

@@ -2,9 +2,10 @@ import { describe, it, expect, vi } from 'vitest'
 import { KoishiBodyAdapter } from '../adapters/koishi/koishi-body-adapter.js'
 import { createDefaultRuntime } from 'koishi-plugin-elysia-ai-runtime'
 
-// 自消息过滤：OneBot 等适配器会把 bot 自己发出的 message_sent 也派发为
-// 'message' 事件，body 若不过滤会把自己的回复当刺激再次感知，
-// 形成自言自语死循环（P0-1）。
+// 自消息处理（P0-1 语义演进）：OneBot 等适配器会把 bot 自己发出的
+// message_sent 也派发为 'message' 事件。触发器重构后，自身消息不再作为
+// utterance 刺激进入主链（防自回复死循环），而是归一为 bot-sent 系统事件
+// 刺激（feed-only：模型自我认知来源，system 组不参与密度合并）。
 
 function createMessageCapturingContext() {
   let messageHandler: ((session: unknown) => Promise<void>) | undefined
@@ -37,12 +38,29 @@ function makeSession(overrides: Record<string, unknown> = {}) {
   }
 }
 
-describe('KoishiBodyAdapter self-message filtering', () => {
-  it('忽略 bot 自身消息，不注入 runtime（防自回复死循环）', async () => {
+describe('KoishiBodyAdapter self-message handling', () => {
+  it('bot 自身消息产生 bot-sent 系统刺激注入 runtime（feed-only，无循环）', async () => {
     const { ctx, dispatch } = createMessageCapturingContext()
     const runtime = createDefaultRuntime()
     const spy = vi.spyOn(runtime, 'receiveStimulus')
     const adapter = new KoishiBodyAdapter(ctx, runtime)
+    adapter.registerListeners()
+
+    await dispatch(makeSession({ userId: 'bot-1', messageId: 'self-msg', content: '我的发言' }))
+
+    expect(spy).toHaveBeenCalledOnce()
+    const stimulus = spy.mock.calls[0][0]
+    expect(stimulus.type).toBe('system')
+    expect(stimulus.payload.eventKind).toBe('bot-sent')
+    expect(stimulus.actorId).toBe('bot-1')
+    expect(stimulus.payload.content).toBe('我的发言')
+  })
+
+  it('recordBotSent: false 时忽略 bot 自身消息，不注入 runtime（旧行为）', async () => {
+    const { ctx, dispatch } = createMessageCapturingContext()
+    const runtime = createDefaultRuntime()
+    const spy = vi.spyOn(runtime, 'receiveStimulus')
+    const adapter = new KoishiBodyAdapter(ctx, runtime, { recordBotSent: false })
     adapter.registerListeners()
 
     await dispatch(makeSession({ userId: 'bot-1', messageId: 'self-msg' }))
@@ -61,5 +79,6 @@ describe('KoishiBodyAdapter self-message filtering', () => {
 
     expect(spy).toHaveBeenCalledOnce()
     expect(spy.mock.calls[0][0].id).toBe('user-msg')
+    expect(spy.mock.calls[0][0].type).toBe('utterance')
   })
 })

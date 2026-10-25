@@ -1,12 +1,29 @@
 /**
  * maheshvara 内容类型 / 输入项类型 / 输出项类型 / 流事件类型常量。
- * 与 Elysia-Api（Go）relay/constants.go 逐一对齐。
+ * 与 Elysia-Api（Go）backend/relay/maheshvara_types.go 顶部的常量块逐一对齐
+ * （relay/constants.go 只含 SSE 缓冲上限等网关常量，非 maheshvara 常量）。
  */
 
 export const SIGNATURE_PROVIDER_ANTHROPIC = 'anthropic'
 export const SIGNATURE_PROVIDER_GEMINI = 'gemini'
 export const SIGNATURE_PROVIDER_OPENAI = 'openai'
 export const SIGNATURE_PROVIDER_MAHESHVARA = 'maheshvara'
+
+/**
+ * 线制格式标识（Go FormatType）。
+ * 基础值见 converter.go（openai/deepseek/gemini/claude/unknown），
+ * 流式别名见 maheshvara_types.go 顶部（openai_chat / openai_responses）。
+ * 错误协议层（errors.ts）以它选择渲染/解析分支。
+ */
+export const FORMAT_OPENAI = 'openai'
+export const FORMAT_DEEPSEEK = 'deepseek'
+export const FORMAT_GEMINI = 'gemini'
+export const FORMAT_CLAUDE = 'claude'
+export const FORMAT_UNKNOWN = 'unknown'
+/** Chat Completions 流式别名（Go FormatChatCompletions = FormatOpenAIChat）。 */
+export const FORMAT_OPENAI_CHAT = 'openai_chat'
+/** Responses 流式别名。 */
+export const FORMAT_RESPONSES = 'openai_responses'
 
 export const CONTENT_TEXT = 'text'
 export const CONTENT_IMAGE = 'image'

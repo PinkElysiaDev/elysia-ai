@@ -9,7 +9,7 @@ function createContext(runtime: ReturnType<typeof createDefaultRuntime>) {
   const disposeHandlers: Array<() => void> = []
 
   const ctx: any = {
-    'elysia-ai-runtime': runtime,
+    'elysia.runtime': runtime,
     logger() {
       return {
         info: () => {},

@@ -215,9 +215,11 @@ export function decodeMessagesResponse(body: unknown): MaheshvaraResponse {
           id: stringValue(block['id']),
           type: OUTPUT_FUNCTION_CALL,
           status: 'completed',
-          call_id: stringValue(block['id']),
+            call_id: stringValue(block['id']),
           name: stringValue(block['name']),
-          arguments: block['input'],
+          // P2-17：canonical 统一为 JSON 字符串（openai/gemini 同为字符串）——
+          // 此前透传对象，跨 provider 回灌时被 encode 侧静默变 '{}'。
+          arguments: JSON.stringify(block['input'] ?? {}),
         })
         break
       case 'image':

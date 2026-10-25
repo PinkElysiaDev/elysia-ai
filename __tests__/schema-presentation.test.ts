@@ -109,10 +109,10 @@ describe('Koishi plugin schema presentation', () => {
   })
 
   it.each([
-    ['高级：行为节奏调参', behaviorConfig],
+    ['密度合并器（何时唤醒 LLM）', behaviorConfig],
+    ['短期记忆（events pack 存档）', behaviorConfig],
     ['高级：上下文预算', brainConfig],
     ['高级：稳态调参', homeostasisConfig],
-    ['高级：认知处理', cognitionConfig],
     ['MongoDB 持久化', runtimeConfig],
   ])('applies collapse directly to the %s object', (description, schema) => {
     const groups = findObjects(schema, description)
@@ -120,40 +120,51 @@ describe('Koishi plugin schema presentation', () => {
     expect(groups[0].meta.collapse).toBe(true)
   })
 
-  it('leaves AI enhancement branches expanded', () => {
-    const cognitionGroups = findObjects(cognitionConfig, 'AI 增强')
-    const perceptionGroups = findObjects(perceptionConfig, 'AI 增强感知')
+  it('keeps cognition event-injection groups expanded', () => {
+    const feedGroups = findObjects(cognitionConfig, '事件清单（events 变量）')
+    const historyGroups = findObjects(cognitionConfig, '事件历史')
 
-    expect(cognitionGroups).toHaveLength(1)
-    expect(cognitionGroups.every((group) => group.meta.collapse !== true)).toBe(true)
-    expect(perceptionGroups).toHaveLength(1)
-    expect(perceptionGroups[0].meta.collapse).not.toBe(true)
+    expect(feedGroups).toHaveLength(1)
+    expect(feedGroups[0].meta.collapse).not.toBe(true)
+    expect(historyGroups).toHaveLength(1)
+    expect(historyGroups[0].meta.collapse).not.toBe(true)
   })
 
-  it('preserves AI enhancement switch branch resolution', () => {
-    const cognitionDisabled = cognitionConfig({ aiEnhanced: false } as never)
-    expect(cognitionDisabled.aiEnhanced).toBe(false)
-    expect(cognitionDisabled).not.toHaveProperty('aiFallbackToRuleBased')
+  it('perception 无 AI 增强分支（触发器重构后回归规则版富化）', () => {
+    const resolved = perceptionConfig({} as never)
+    expect(resolved).toMatchObject({
+      enabledIntentClassify: true,
+      enabledEntityExtract: true,
+      enabledSentiment: true,
+    })
+    expect(resolved).not.toHaveProperty('aiEnhanced')
+    expect(resolved).not.toHaveProperty('maxInputTokens')
+  })
 
-    const cognitionEnabled = cognitionConfig({ aiEnhanced: true } as never)
-    expect(cognitionEnabled).toMatchObject({
-      aiEnhanced: true,
-      aiFallbackToRuleBased: true,
-      aiMinSalience: 0.2,
-      aiModelSlot: '',
+  it('resolves cognition event-injection defaults and overrides', () => {
+    const defaults = cognitionConfig({} as never)
+    expect(defaults).toMatchObject({
+      events: {
+        enabled: true,
+        feed: { maxEvents: 30 },
+        history: { maxEvents: 100, windowMs: 1800000 },
+      },
     })
 
-    const perceptionDisabled = perceptionConfig({ aiEnhanced: false } as never)
-    expect(perceptionDisabled.aiEnhanced).toBe(false)
-    expect(perceptionDisabled).not.toHaveProperty('aiFallbackToRuleBased')
-
-    const perceptionEnabled = perceptionConfig({ aiEnhanced: true } as never)
-    expect(perceptionEnabled).toMatchObject({
-      aiEnhanced: true,
-      maxInputTokens: 8192,
-      aiFallbackToRuleBased: true,
-      aiMinTextLength: 12,
-      aiModelSlot: '',
+    const customized = cognitionConfig({
+      events: {
+        enabled: true,
+        enabledEvents: { 'member-removed': false },
+        feed: { include: { 'member-removed': false }, maxEvents: 10 },
+        history: { maxEvents: 50, windowMs: 60000 },
+      },
+    } as never)
+    expect(customized).toMatchObject({
+      events: {
+        enabledEvents: { 'member-removed': false },
+        feed: { include: { 'member-removed': false }, maxEvents: 10 },
+        history: { maxEvents: 50, windowMs: 60000 },
+      },
     })
   })
 })

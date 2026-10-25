@@ -111,16 +111,16 @@ describe('Koishi plugin schema surface', () => {
   })
 
   it('attaches collapse metadata to the concrete advanced configuration objects', () => {
-    expect(findProperty(behaviorConfig as SchemaNode, 'timing')?.meta.collapse).toBe(true)
+    expect(findProperty(behaviorConfig as SchemaNode, 'batcher')?.meta.collapse).toBe(true)
+    expect(findProperty(behaviorConfig as SchemaNode, 'packMemory')?.meta.collapse).toBe(true)
     expect(findProperty(brainConfig as SchemaNode, 'contextBudget')?.meta.collapse).toBe(true)
     expect(findProperty(homeostasisConfig as SchemaNode, 'dynamics')?.meta.collapse).toBe(true)
     expect(findObjectWithKey(runtimeConfig as SchemaNode, 'uri')?.meta.collapse).toBe(true)
-    expect(findProperty(cognitionConfig as SchemaNode, 'salience')?.meta.collapse).toBe(true)
 
-    expect(findFieldOwner(behaviorConfig as SchemaNode, 'directWindowMs')?.meta.collapse).toBe(true)
+    expect(findFieldOwner(behaviorConfig as SchemaNode, 'quietWindowMs')?.meta.collapse).toBe(true)
     expect(findFieldOwner(brainConfig as SchemaNode, 'maxMemoryChars')?.meta.collapse).toBe(true)
     expect(findFieldOwner(homeostasisConfig as SchemaNode, 'initialEnergy')?.meta.collapse).toBe(true)
-    expect(findFieldOwner(cognitionConfig as SchemaNode, 'recentConversationLimit')?.meta.collapse).toBe(true)
+    expect(findFieldOwner(cognitionConfig as SchemaNode, 'enabledEvents')?.meta.description).toBe('事件注入配置')
 
     for (const config of [behaviorConfig, brainConfig, cognitionConfig, homeostasisConfig]) {
       expect(collectCollapsedIntersects(config.toJSON() as SchemaNode)).toEqual([])
@@ -129,11 +129,18 @@ describe('Koishi plugin schema surface', () => {
 
   it('keeps advanced values inside their collapsible configuration objects', () => {
     expect(behaviorConfig({} as never)).toMatchObject({
-      timing: {
-        directWindowMs: 1500,
-        userBufferedWindowMs: 2500,
-        threadBufferedWindowMs: 3500,
-        habitatBufferedWindowMs: 5000,
+      enableReply: true,
+      batcher: {
+        quietWindowMs: 8000,
+        dmQuietWindowMs: 1500,
+        maxWaitMs: 30000,
+        densityWindowMs: 10000,
+        densityThreshold: 15,
+        maxBatch: 50,
+      },
+      packMemory: {
+        maxPacks: 12,
+        injectPacks: 2,
       },
     })
     expect(brainConfig({} as never)).toMatchObject({
@@ -153,24 +160,19 @@ describe('Koishi plugin schema surface', () => {
         minValue: 0,
       },
     })
+    // cognition：事件注入配置（events 总开关 / 事件清单 / 事件历史）
     expect(cognitionConfig({} as never)).toMatchObject({
-      salience: {
-        recentConversationLimit: 12,
-        salienceDirectMentionBonus: 0.35,
-        salienceLengthFactor: 0.001,
+      events: {
+        enabled: true,
+        feed: { maxEvents: 30 },
+        history: { maxEvents: 100, windowMs: 1800000 },
       },
     })
   })
 
-  it('keeps AI enhancement switches and enabled branches expanded', () => {
-    const cognitionSwitch = findObjectWithKey(cognitionConfig as SchemaNode, 'aiEnhanced')!
-    const cognitionBranch = findObjectWithKey(cognitionConfig as SchemaNode, 'aiFallbackToRuleBased')!
-    const perceptionSwitch = findObjectWithKey(perceptionConfig as SchemaNode, 'aiEnhanced')!
-    const perceptionBranch = findObjectWithKey(perceptionConfig as SchemaNode, 'aiFallbackToRuleBased')!
-
-    expect(cognitionSwitch.meta.collapse).not.toBe(true)
-    expect(cognitionBranch.meta.collapse).not.toBe(true)
-    expect(perceptionSwitch.meta.collapse).not.toBe(true)
-    expect(perceptionBranch.meta.collapse).not.toBe(true)
+  it('perception 规则版富化开关保持展开（AI 逐条分析已随触发器重构移除）', () => {
+    const intentSwitch = findObjectWithKey(perceptionConfig as SchemaNode, 'enabledIntentClassify')!
+    expect(intentSwitch.meta.collapse).not.toBe(true)
+    expect(findObjectWithKey(perceptionConfig as SchemaNode, 'aiEnhanced')).toBeUndefined()
   })
 })

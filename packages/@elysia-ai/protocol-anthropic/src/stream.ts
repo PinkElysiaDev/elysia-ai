@@ -4,7 +4,8 @@
  * 块状态（tool_use 参数累积）跨事件维护。
  */
 
-import type { MaheshvaraContentPart, MaheshvaraStreamEvent, SSEEvent } from '@elysia-ai/maheshvara'
+import type {
+  MaheshvaraUsage, MaheshvaraContentPart, MaheshvaraStreamEvent, SSEEvent } from '@elysia-ai/maheshvara'
 import {
   CONTENT_REASONING,
   CONTENT_TEXT,
@@ -26,6 +27,7 @@ import {
 } from '@elysia-ai/maheshvara'
 import {
   asRecord,
+  classFromAnthropicType,
   decodeMaheshvaraReasoningEnvelope,
   firstNonEmptyString,
   intValue,
@@ -47,6 +49,9 @@ export class AnthropicStreamDecoder {
   private sawWireEvent = false
   private sawOutput = false
   private readonly blocks = new Map<number, AnthropicBlock>()
+  // P2-12：usage 快照累计——message_start 带 input_tokens，message_delta 只带
+  // 累积 output_tokens。不合并则消费端"取最后一条"丢 input、"逐条相加"双计 output。
+  private lastUsage?: MaheshvaraUsage
 
   getTerminal(): boolean {
     return this.terminal
@@ -109,6 +114,7 @@ export class AnthropicStreamDecoder {
         events.push(event)
         const usage = usageFromRawMap(asRecord(message['usage']))
         if (usage) {
+          this.lastUsage = { ...usage }
           const usageEvent = this.baseEvent(EVENT_USAGE_DELTA, raw)
           usageEvent.usage = usage
           events.push(usageEvent)
@@ -270,8 +276,19 @@ export class AnthropicStreamDecoder {
       case 'message_delta': {
         const usage = usageFromRawMap(asRecord(raw['usage']))
         if (usage) {
+          // 合并快照语义：delta 只带累积 output（input 缺省 0），回填 message_start
+          // 记录的 input 侧，使每条 usage 事件都是完整可独立消费的快照。
+          const merged = { ...usage }
+          if (this.lastUsage) {
+            if (merged.input_tokens === 0) merged.input_tokens = this.lastUsage.input_tokens
+            if (!merged.cached_input_tokens) merged.cached_input_tokens = this.lastUsage.cached_input_tokens
+            if (merged.total_tokens === merged.output_tokens) {
+              merged.total_tokens = merged.input_tokens + merged.output_tokens
+            }
+          }
+          this.lastUsage = { ...merged }
           const usageEvent = this.baseEvent(EVENT_USAGE_DELTA, raw)
-          usageEvent.usage = usage
+          usageEvent.usage = merged
           events.push(usageEvent)
         }
         const delta = asRecord(raw['delta']) ?? {}
@@ -295,10 +312,12 @@ export class AnthropicStreamDecoder {
       case 'error': {
         this.terminal = true
         const errorValue = asRecord(raw['error']) ?? {}
+        const errType = stringValue(errorValue['type'])
         const event = this.baseEvent(EVENT_RESPONSE_FAILED, raw)
         event.error = {
           message: firstNonEmptyString(stringValue(errorValue['message']), 'Anthropic stream error'),
-          type: stringValue(errorValue['type']) || undefined,
+          type: errType || undefined,
+          class: classFromAnthropicType(errType),
           raw: errorValue,
         }
         events.push(event)

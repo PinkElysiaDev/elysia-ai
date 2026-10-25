@@ -1,6 +1,6 @@
 {
   "name": "@elysia-ai/core",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "description": "Elysia A.I. 核心领域类型、事件总线接口、仓储抽象与 Zod schema（被各 koishi-plugin-elysia-ai-* 共享的公共库）。",
   "main": "lib/index.cjs",

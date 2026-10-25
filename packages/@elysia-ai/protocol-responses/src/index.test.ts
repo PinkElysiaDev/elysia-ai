@@ -184,3 +184,20 @@ describe('elysia-api 深度更新同步（v0.2.0）', () => {
     expect(item?.reasoning?.encrypted_content).toBe('enc-final')
   })
 })
+
+describe('elysia-api v1.4.0 同步：错误分类', () => {
+  it('response.failed 按 OpenAI type 反推分类', () => {
+    const decoder = new ResponsesStreamDecoder()
+    const events = decoder.decode(sse('{"type":"response.failed","response":{"error":{"type":"rate_limit_error","message":"slow","code":"slow_down"}}}'))
+    const failed = events.find((e) => e.type === 'response.failed')
+    expect(failed?.error?.class).toBe('rate_limit')
+    expect(failed?.error?.code).toBe('slow_down')
+  })
+
+  it('error 事件 type 缺失时分类为空（对齐 Go 零值）', () => {
+    const decoder = new ResponsesStreamDecoder()
+    const events = decoder.decode(sse('{"type":"error","error":{"message":"bad"}}'))
+    const failed = events.find((e) => e.type === 'response.failed')
+    expect(failed?.error?.class).toBe('')
+  })
+})

@@ -5,59 +5,12 @@ export interface BehaviorScope {
   key: string
 }
 
-export interface BehaviorSignal {
-  directness: number
-  continuity: number
-  bondAffinity: number
-  bufferPressure: number
-  responseNecessity: number
-  structuralDeterminability: number
-}
-
-export type BehaviorActionType =
-  | 'discard'
-  | 'observe'
-  | 'reply'
-  | 'ask'
-  | 'quote'
-  | 'defer'
-  | 'memory-only'
-  | 'state-update'
-  | 'proactive-topic'
-
 export type BehaviorPlannerSource = 'program' | 'ai' | 'hybrid'
-
-export interface BehaviorCandidate {
-  id: string
-  type: BehaviorActionType
-  scope: BehaviorScope
-  sourceStimulusIds: string[]
-  priority: number
-  confidence: number
-  reason: string
-  shouldEnterDialogue: boolean
-  shouldUpdateMemory: boolean
-  shouldUpdateBond: boolean
-  shouldUpdateHomeostasis: boolean
-  shouldScheduleFollowup: boolean
-  metadata?: Record<string, unknown>
-}
-
-export interface BehaviorDecision {
-  id: string
-  selected: BehaviorCandidate
-  candidates: BehaviorCandidate[]
-  signal: BehaviorSignal
-  plannerSource: BehaviorPlannerSource
-  decidedAt: number
-  reason: string
-  metadata?: Record<string, unknown>
-}
 
 /**
  * 行为策略（可序列化的规划结果）
  *
- * 是 BehaviorDecision 的简化版，仅保留执行时必需的信息，
+ * 仅保留执行时必需的信息，
  * 用于从 behavior 层传递规划结果给 runtime 调度器。
  *
  * @see ResponsePlan in @elysia-ai/behavior/src/types.ts

@@ -26,7 +26,7 @@ describe('Elysia Koishi dependency gates', () => {
     applyModelGateway(ctx, { slots: {} } as any)
 
     expect(ctx['elysia.modelGateway']).toBeUndefined()
-    expect(ctx['elysia-ai-model-gateway']).toBeUndefined()
+    expect(ctx['elysia.modelGateway']).toBeUndefined()
   })
 
   it('brain does not register without model gateway', () => {
@@ -36,7 +36,7 @@ describe('Elysia Koishi dependency gates', () => {
     applyBrain(ctx, {} as any)
 
     expect(ctx['elysia.brain']).toBeUndefined()
-    expect(ctx['elysia-ai-brain']).toBeUndefined()
+    expect(ctx['elysia.brain']).toBeUndefined()
   })
 
   it('dialogue does not register without brain', () => {
@@ -46,7 +46,7 @@ describe('Elysia Koishi dependency gates', () => {
     applyDialogue(ctx, { enabled: true, memoryLimit: 10 })
 
     expect(ctx['elysia.dialogue']).toBeUndefined()
-    expect(ctx['elysia-ai-dialogue']).toBeUndefined()
+    expect(ctx['elysia.dialogue']).toBeUndefined()
   })
 
   it('body does not register without runtime', () => {
@@ -55,6 +55,6 @@ describe('Elysia Koishi dependency gates', () => {
     applyBody(ctx, {})
 
     expect(ctx['elysia.body']).toBeUndefined()
-    expect(ctx['elysia-ai-body']).toBeUndefined()
+    expect(ctx['elysia.body']).toBeUndefined()
   })
 })

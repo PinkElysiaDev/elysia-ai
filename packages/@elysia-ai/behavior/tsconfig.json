@@ -13,6 +13,12 @@
       "path": "../core"
     },
     {
+      "path": "../trigger"
+    },
+    {
+      "path": "../brain"
+    },
+    {
       "path": "../shared"
     },
     {

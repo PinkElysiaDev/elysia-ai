@@ -15,8 +15,6 @@ $description:
   recoveryFactor: 低于基线时的恢复速率相对衰减速率的倍率（空闲恢复通常更慢）。
   maxValue: 各状态指标的上限。
   minValue: 各状态指标的下限。
-  responseThresholdMin: 回应阈值下限。
-  responseThresholdMax: 回应阈值上限。
 
 $name:
   基础设置: 基础设置

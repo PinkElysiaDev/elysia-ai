@@ -9,9 +9,21 @@ export type PersistenceMode = 'memory' | 'mongo'
  * MongoDB 集合的最小结构契约（与 @elysia-ai/shared 的 MongoDocLikeCollection 对齐，
  * 但 core 不依赖 shared，故在此独立声明同构接口）。
  */
+/** 服务端查询下推选项（与 shared 的 MongoFindOptions 同构镜像）。 */
+export interface PersistenceFindOptions {
+  sort?: Record<string, 1 | -1>
+  limit?: number
+  skip?: number
+  projection?: Record<string, 0 | 1>
+}
+
 export interface PersistenceCollectionLike<TDoc> {
   findOne(filter: Record<string, unknown>): Promise<TDoc | null>
-  find(filter: Record<string, unknown>): { toArray(): Promise<TDoc[]> } | Promise<TDoc[]> | TDoc[]
+  find(
+    filter: Record<string, unknown>,
+    options?: PersistenceFindOptions,
+  ): { toArray(): Promise<TDoc[]> } | Promise<TDoc[]> | TDoc[]
+  countDocuments?(filter: Record<string, unknown>): Promise<number>
   updateOne(
     filter: Record<string, unknown>,
     update: {

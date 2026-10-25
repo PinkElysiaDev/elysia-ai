@@ -1,5 +1,5 @@
 {
-  "version": "0.2.0",
+  "version": "0.3.0",
   "name": "@elysia-ai/protocol-openai",
   "description": "Elysia A.I. OpenAI Chat Completions 协议包：maheshvara ↔ wire 的请求构造、响应解析与 SSE 流解码。与 Elysia-Api（Go）relay 层语义逐行为对齐。",
   "main": "lib/index.cjs",
@@ -31,7 +31,7 @@
     "./package.json": "./package.json"
   },
   "dependencies": {
-    "@elysia-ai/maheshvara": "^0.2.0"
+    "@elysia-ai/maheshvara": "^0.3.0"
   },
   "devDependencies": {
     "esbuild": "^0.23.1",

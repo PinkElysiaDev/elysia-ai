@@ -1,5 +1,5 @@
 {
-  "version": "0.2.0",
+  "version": "0.2.1",
   "name": "@elysia-ai/shared",
   "description": "Elysia A.I. 共享工具库：服务注册、数值/刺激工具、AI 相关性选择器基类、Mongo 仓储基类与连接器、插件工厂（被各 koishi-plugin-elysia-ai-* 共享）。",
   "main": "lib/index.cjs",
@@ -31,7 +31,7 @@
     "./package.json": "./package.json"
   },
   "dependencies": {
-    "@elysia-ai/core": "^0.2.0"
+    "@elysia-ai/core": "^0.2.1"
   },
   "peerDependencies": {
     "koishi": "^4.18.0"

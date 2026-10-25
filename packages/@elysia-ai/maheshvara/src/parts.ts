@@ -196,7 +196,13 @@ export function usageFromRawMap(raw: Record<string, unknown> | undefined): Mahes
     input_tokens: intValue(firstNonValue(raw, ['input_tokens', 'inputTokens', 'prompt_tokens', 'promptTokenCount'])),
     output_tokens: intValue(firstNonValue(raw, ['output_tokens', 'outputTokens', 'completion_tokens', 'candidatesTokenCount'])),
     total_tokens: intValue(firstNonValue(raw, ['total_tokens', 'totalTokens', 'totalTokenCount'])),
-    cached_input_tokens: intValue(firstNonValue(raw, ['cached_tokens', 'cachedInputTokens', 'cachedContentTokenCount'])) || undefined,
+    // P2-13：嵌套回退——OpenAI 流式 chunk 的 usage.prompt_tokens_details.cached_tokens
+    // 与 Responses 流式的 input_tokens_details.cached_tokens 藏在明细对象里，
+    // 平铺键取不到（非流式路径各协议 decode 已处理嵌套）。
+    cached_input_tokens: intValue(firstNonValue(raw, ['cached_tokens', 'cachedInputTokens', 'cachedContentTokenCount']))
+      || intValue(asRecordLike(raw['prompt_tokens_details'])?.['cached_tokens'])
+      || intValue(asRecordLike(raw['input_tokens_details'])?.['cached_tokens'])
+      || undefined,
     reasoning_tokens: intValue(firstNonValue(raw, ['reasoning_tokens', 'reasoningTokens', 'thoughtsTokenCount'])) || undefined,
     source: 'provider_stream',
   }
@@ -204,4 +210,10 @@ export function usageFromRawMap(raw: Record<string, unknown> | undefined): Mahes
     usage.total_tokens = usage.input_tokens + usage.output_tokens
   }
   return usage
+}
+
+function asRecordLike(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined
 }

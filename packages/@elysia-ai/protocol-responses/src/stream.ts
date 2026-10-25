@@ -23,7 +23,7 @@ import {
   OUTPUT_FUNCTION_CALL,
   SIGNATURE_PROVIDER_OPENAI,
 } from '@elysia-ai/maheshvara'
-import { asRecord, firstNonEmptyString, int64Value, intValue, stringValue, usageFromRawMap } from '@elysia-ai/maheshvara'
+import { asRecord, classFromOpenAIType, firstNonEmptyString, int64Value, intValue, stringValue, usageFromRawMap } from '@elysia-ai/maheshvara'
 import { decodeResponsesResponse } from './decode.js'
 
 function responsesMapToMaheshvara(raw: Record<string, unknown> | undefined): MaheshvaraResponse | undefined {
@@ -219,9 +219,11 @@ export class ResponsesStreamDecoder {
         if (!errorValue && responseValue) errorValue = asRecord(responseValue['error'])
         errorValue ??= {}
         event.type = EVENT_RESPONSE_FAILED
+        const errType = stringValue(errorValue['type'])
         event.error = {
           message: firstNonEmptyString(stringValue(errorValue['message']), 'OpenAI Responses stream failed'),
-          type: stringValue(errorValue['type']) || undefined,
+          type: errType || undefined,
+          class: classFromOpenAIType(errType),
           code: stringValue(errorValue['code']) || undefined,
           param: stringValue(errorValue['param']) || undefined,
           raw: errorValue,

@@ -1,9 +1,15 @@
+import type { ToolCall } from './tools.js'
+
 export type DialogueRole = 'system' | 'user' | 'assistant' | 'tool'
 
 export interface DialogueMessage {
   role: DialogueRole
   content: string
   name?: string
+  /** assistant 消息携带的工具调用请求（agentic 模式） */
+  toolCalls?: ToolCall[]
+  /** tool 角色消息对应的调用 id */
+  toolCallId?: string
   metadata?: Record<string, unknown>
 }
 

@@ -169,12 +169,16 @@ function maheshvaraReasoningToOpenAIDetails(parts: MaheshvaraContentPart[]): Arr
   return details
 }
 
-function maheshvaraMessagesToOpenAI(req: MaheshvaraRequest): Array<Record<string, unknown>> {
+export function maheshvaraMessagesToOpenAI(req: MaheshvaraRequest): Array<Record<string, unknown>> {
   const messages: Array<Record<string, unknown>> = []
   if (req.instructions) {
     messages.push({ role: 'system', content: req.instructions })
   }
   const allMessages = req.messages ?? []
+  // P2-16：assistant tool_calls 空 id 被 ensureToolCallID 合成的 id 登记队列，
+  // 后续空 tool_call_id 的 tool 输出按 FIFO 领取同一合成 id，
+  // 保证 assistant tool_calls[].id 与 role:"tool" 的 tool_call_id 配对一致。
+  const synthesizedCallIDs: string[] = []
   for (let msgIndex = 0; msgIndex < allMessages.length; msgIndex++) {
     const msg = allMessages[msgIndex]
     const visibleParts: MaheshvaraContentPart[] = []
@@ -227,13 +231,32 @@ function maheshvaraMessagesToOpenAI(req: MaheshvaraRequest): Array<Record<string
       if ((msg.tool_calls?.length ?? 0) > 0) {
         const calls: Array<Record<string, unknown>> = []
         msg.tool_calls!.forEach((call, callIndex) => {
-          let argumentsText = typeof call.arguments === 'string' ? call.arguments.trim() : ''
+          // P2-17：非字符串 arguments（anthropic decode 产出对象）防御性 stringify，
+          // 此前对象静默回退 '{}' 导致跨 provider 多轮工具参数全丢。
+          let argumentsText = ''
+          if (typeof call.arguments === 'string') {
+            argumentsText = call.arguments.trim()
+          } else if (call.arguments !== undefined && call.arguments !== null) {
+            try {
+              argumentsText = JSON.stringify(call.arguments)
+            } catch {
+              argumentsText = ''
+            }
+          }
           if (argumentsText === '') argumentsText = call.arguments_text ?? ''
           if (argumentsText === '') argumentsText = '{}'
+          // 遗留 function calling（PC2.9）：消息级单对象形态（每条 assistant
+          // 消息至多一个，旧客户端语义），只认解析器打的显式标记。
+          if (call.raw?.['legacy_function'] === true) {
+            out['function_call'] = { name: call.name, arguments: argumentsText }
+            return
+          }
           const callType = firstNonEmptyString(call.type, TOOL_FUNCTION)
+          const wireCallID = ensureToolCallID(call.id, msgIndex, callIndex)
+          if ((call.id ?? '').trim() === '') synthesizedCallIDs.push(wireCallID)
           const wireCall: Record<string, unknown> = {
             // 绝不输出空 id：严格上游会判 missing field id。
-            id: ensureToolCallID(call.id, msgIndex, callIndex),
+            id: wireCallID,
             type: callType,
             function: { name: call.name, arguments: argumentsText },
           }
@@ -243,16 +266,19 @@ function maheshvaraMessagesToOpenAI(req: MaheshvaraRequest): Array<Record<string
           }
           calls.push(wireCall)
         })
-        out['tool_calls'] = calls
+        // 遗留 function_call 分流后 calls 可能为空：空数组不赋值（对齐 Go len>0 门）。
+        if (calls.length > 0) out['tool_calls'] = calls
       }
       messages.push(out)
     }
 
     // tool_output 部件 → role:"tool" 消息，与 assistant tool_calls[].id 对应。
     for (const toolOutput of toolOutputs) {
+      const toolCallID = (toolOutput.tool_call_id ?? '').trim()
       messages.push({
         role: 'tool',
-        tool_call_id: toolOutput.tool_call_id,
+        // 空 id 时回填前序 assistant 合成的 id，保持配对；无命中保持原值。
+        tool_call_id: toolCallID !== '' ? toolCallID : synthesizedCallIDs.shift() ?? '',
         content: toolOutput.tool_output,
       })
     }
@@ -358,7 +384,14 @@ export function encodeChatCompletionsRequest(req: MaheshvaraRequest): Record<str
     model: req.model,
     messages: maheshvaraMessagesToOpenAI(req),
   }
-  if ((req.max_output_tokens ?? 0) > 0) out['max_tokens'] = req.max_output_tokens
+  if ((req.max_output_tokens ?? 0) > 0) {
+    // RawExtra.max_tokens_field 记录解析时上游用的原始字段名，
+    // 回写保持字段名保真（如 o 系模型要求的 max_completion_tokens）。
+    const field = req.RawExtra?.['max_tokens_field'] === 'max_completion_tokens'
+      ? 'max_completion_tokens'
+      : 'max_tokens'
+    out[field] = req.max_output_tokens
+  }
   if (req.temperature !== undefined) out['temperature'] = req.temperature
   if (req.top_p !== undefined) out['top_p'] = req.top_p
   if (req.stream) {
@@ -369,7 +402,25 @@ export function encodeChatCompletionsRequest(req: MaheshvaraRequest): Record<str
     out['stream_options'] = { include_usage: req.stream_options.include_usage }
   }
   if (req.stop !== undefined && req.stop !== null) out['stop'] = req.stop
-  if ((req.tools?.length ?? 0) > 0) out['tools'] = maheshvaraToolsToOpenAI(req.tools!)
+  if ((req.tools?.length ?? 0) > 0) {
+    // 遗留 functions 分流（PC2.9）：解析时标记 legacy_function 的旧式工具按
+    // functions 形态发，其余按现代 tools 发；两种形态可并存。
+    const tools: Array<Record<string, unknown>> = []
+    const legacyFunctions: Array<Record<string, unknown>> = []
+    for (const tool of req.tools!) {
+      if (tool.raw?.['legacy_function'] === true) {
+        legacyFunctions.push({
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters ?? tool.input_schema,
+        })
+        continue
+      }
+      tools.push(...maheshvaraToolsToOpenAI([tool]))
+    }
+    if (tools.length > 0) out['tools'] = tools
+    if (legacyFunctions.length > 0) out['functions'] = legacyFunctions
+  }
   if (req.tool_choice !== undefined && req.tool_choice !== null) {
     out['tool_choice'] = maheshvaraToolChoiceToOpenAI(req.tool_choice)
   }

@@ -12,6 +12,7 @@ import {
   CONTENT_REASONING,
   CONTENT_REFUSAL,
   CONTENT_TEXT,
+  ERROR_CLASS_UPSTREAM,
   EVENT_CONTENT_PART_ADDED,
   EVENT_FUNCTION_CALL_ADDED,
   EVENT_FUNCTION_CALL_ARGUMENTS_DELTA,
@@ -79,8 +80,10 @@ export class ChatCompletionsStreamDecoder {
   private sawWireEvent = false
   private sawOutput = false
   private sawFinishReason = false
-  private readonly tools = new Map<number, ToolCallState>()
-  private readonly toolOrder: number[] = []
+  // P2-14：键含 choiceIndex——n>1 时不同 choice 的同名 tool index 参数
+  // 会在跨 choice 共享的 Map 里互相拼接（toolOrder 同理）。
+  private readonly tools = new Map<string, ToolCallState>()
+  private readonly toolOrder: string[] = []
   private readonly finishedChoices = new Set<number>()
   private readonly seenChoices = new Set<number>()
   private readonly choiceReasoned = new Set<number>()
@@ -263,16 +266,18 @@ export class ChatCompletionsStreamDecoder {
             rawError ? stringValue(rawError['message']) : '',
             stringValue(delta['content']),
           ) || 'upstream reported finish_reason=error'
-          failed.error = { message, type: 'upstream_stream_error' }
+          failed.error = { message, type: 'upstream_stream_error', class: ERROR_CLASS_UPSTREAM }
           terminalEvents.push(failed)
           continue
         }
-        for (const toolIndex of this.toolOrder) {
-          const state = this.tools.get(toolIndex)
+        for (const compositeKey of this.toolOrder) {
+          const [keyChoice, keyTool] = splitToolKey(compositeKey)
+          if (keyChoice !== choiceIndex) continue // 只 flush 本 choice 的工具
+          const state = this.tools.get(compositeKey)
           if (!state || state.arguments.length === 0) continue
           const doneEvent = this.baseEvent(EVENT_FUNCTION_CALL_ARGUMENTS_DONE, raw)
           doneEvent.choice_index = choiceIndex
-          doneEvent.tool_call_index = toolIndex
+          doneEvent.tool_call_index = keyTool
           doneEvent.tool_call_id = state.id
           doneEvent.tool_name = state.name
           doneEvent.tool_arguments_done = state.arguments
@@ -309,11 +314,12 @@ export class ChatCompletionsStreamDecoder {
       const tool = asRecord(toolValue)
       if (!tool) continue
       const toolIndex = intValue(tool['index'])
-      let state = this.tools.get(toolIndex)
+      const compositeKey = `${choiceIndex}:${toolIndex}`
+      let state = this.tools.get(compositeKey)
       if (!state) {
         state = { id: '', name: '', arguments: '', added: false }
-        this.tools.set(toolIndex, state)
-        this.toolOrder.push(toolIndex)
+        this.tools.set(compositeKey, state)
+        this.toolOrder.push(compositeKey)
       }
       const fn = asRecord(tool['function']) ?? {}
       const signature = openAIGoogleThoughtSignature(tool)
@@ -342,7 +348,7 @@ export class ChatCompletionsStreamDecoder {
           // 快照是完整参数值：与已累计内容一致时不重发，否则作为完整值
           // 走 done 事件（渲染层对 done 做前缀差分，只补后缀）。
           if (state.arguments === argumentsText) continue
-          this.tools.set(toolIndex, { id: state.id, name: state.name, arguments: argumentsText, added: true })
+          this.tools.set(compositeKey, { id: state.id, name: state.name, arguments: argumentsText, added: true })
           const doneEvent = this.baseEvent(EVENT_FUNCTION_CALL_ARGUMENTS_DONE, raw)
           doneEvent.choice_index = choiceIndex
           doneEvent.tool_call_index = toolIndex
@@ -457,4 +463,10 @@ export class ChatCompletionsStreamDecoder {
     }
     return []
   }
+}
+
+/** "choiceIndex:toolIndex" 复合键拆分（P2-14）。 */
+function splitToolKey(key: string): [number, number] {
+  const separator = key.indexOf(':')
+  return [Number(key.slice(0, separator)), Number(key.slice(separator + 1))]
 }

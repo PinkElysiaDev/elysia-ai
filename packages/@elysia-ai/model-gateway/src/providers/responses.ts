@@ -1,7 +1,8 @@
 import { decodeResponsesResponse, encodeResponsesRequest, extractMessageText } from '@elysia-ai/protocol-responses'
 import type { Provider, ProviderConfig, ProviderRequest, ProviderResponse } from './types.js'
-import { createHttpProviderError, createProviderApiError, fetchWithTimeout, readResponseBody, normalizeResponsesFinishReason } from './utils.js'
+import { createHttpProviderError, createProviderApiError, fetchWithTimeout, readResponseBody, normalizeResponsesFinishReason, providerWireFormat } from './utils.js'
 import { toMaheshvaraRequest } from './maheshvara-bridge.js'
+import { extractToolCalls } from './extract-tool-calls.js'
 
 const DEFAULT_ENDPOINT = '/v1'
 
@@ -16,7 +17,8 @@ export function createResponsesProvider(config: ProviderConfig): Provider {
 
   const maxTokens = config.maxTokens ?? 4096
   const temperature = config.temperature ?? 0.7
-  const timeoutMs = config.timeoutMs
+  // 默认超时兜底：provider 挂死会阻塞同 habitat 串行队列（全部后续消息排队等死）
+  const timeoutMs = config.timeoutMs ?? 120_000
 
   return {
     id: config.id,
@@ -32,6 +34,7 @@ export function createResponsesProvider(config: ProviderConfig): Provider {
         model,
         maxTokens: request.maxTokens ?? maxTokens,
         temperature: request.temperature ?? temperature,
+        ...(config.maxTokensField ? { maxTokensField: config.maxTokensField } : {}),
       })
       const timeout = request.timeoutMs ?? timeoutMs
 
@@ -50,13 +53,13 @@ export function createResponsesProvider(config: ProviderConfig): Provider {
 
       if (!res.ok) {
         const responseBody = await readResponseBody(res)
-        throw createHttpProviderError('Responses', config.id, res, responseBody)
+        throw createHttpProviderError('Responses', config.id, res, responseBody, providerWireFormat('responses'))
       }
 
       const json = await res.json() as any
 
       if (json.error) {
-        throw createProviderApiError('Responses', config.id, json)
+        throw createProviderApiError('Responses', config.id, json, undefined, providerWireFormat('responses'))
       }
 
       const maheshvaraResponse = decodeResponsesResponse(json)
@@ -64,6 +67,7 @@ export function createResponsesProvider(config: ProviderConfig): Provider {
       if (!output && typeof (json as any).output_text === 'string') {
         output = (json as any).output_text
       }
+      const toolCalls = extractToolCalls(maheshvaraResponse)
 
       // status 是生命周期状态而非停止原因；截断/过滤须看 incomplete_details
       const finishReason = normalizeResponsesFinishReason(
@@ -76,9 +80,10 @@ export function createResponsesProvider(config: ProviderConfig): Provider {
 
       return {
         output,
+        toolCalls: toolCalls.length ? toolCalls : undefined,
         messages: [
           ...request.messages,
-          { role: 'assistant', content: output },
+          { role: 'assistant', content: output, ...(toolCalls.length ? { toolCalls } : {}) },
         ],
         provider: {
           id: config.id,

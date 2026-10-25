@@ -4,7 +4,6 @@ import type {
   BehaviorExecutionPlan,
   BehaviorExecutionResult,
   BehaviorExecutionService,
-  BehaviorFollowupScheduleRequest,
   BondUpdateRequest,
   CoreEventMap,
   DialogueTask,
@@ -13,7 +12,6 @@ import type {
   MemoryUpdateRequest,
 } from '@elysia-ai/core'
 import type { RuntimeLogger } from '../context/index.js'
-import type { SchedulerService } from '../scheduler/index.js'
 
 export interface BehaviorExecutionServiceOptions {
   failurePolicy?: 'continue' | 'stop-on-critical'
@@ -45,14 +43,9 @@ function isDialogueTask(value: unknown): value is DialogueTask {
     && Array.isArray((value as Partial<DialogueTask>).sourceStimulusIds)
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
 export class DefaultBehaviorExecutionService implements BehaviorExecutionService {
   constructor(
     private readonly eventBus: EventBus<CoreEventMap>,
-    private readonly scheduler: SchedulerService,
     private readonly logger?: RuntimeLogger,
     private readonly options: BehaviorExecutionServiceOptions = {},
   ) {}
@@ -211,8 +204,6 @@ export class DefaultBehaviorExecutionService implements BehaviorExecutionService
     switch (action.type) {
       case 'dialogue':
         return this.dispatchDialogue(plan, action, startedAt)
-      case 'schedule-followup':
-        return this.dispatchScheduleFollowup(plan, action, startedAt)
       case 'memory-update':
         return this.dispatchMemoryUpdate(plan, action, startedAt)
       case 'bond-update':
@@ -258,79 +249,31 @@ export class DefaultBehaviorExecutionService implements BehaviorExecutionService
     }
   }
 
-  private async dispatchScheduleFollowup(
-    plan: BehaviorExecutionPlan,
-    action: BehaviorExecutionAction,
-    startedAt: number,
-  ): Promise<Omit<BehaviorExecutionActionResult, 'completedAt'>> {
-    const request = action.payload['request']
-    if (!isRecord(request)) {
-      throw new Error('schedule-followup action missing request')
-    }
-
-    const followup = request as unknown as BehaviorFollowupScheduleRequest
-    const task = await this.scheduler.schedule({
-      type: 'followup',
-      runAt: followup.runAt,
-      target: {
-        lifeId: followup.lifeId,
-        habitatId: plan.habitatId,
-        channelId: plan.channelId,
-        threadId: plan.threadId,
-        actorId: plan.actorId,
-        platform: plan.platform,
-        botId: plan.botId,
-      },
-      priority: plan.priority,
-      payload: {
-        stimulus: followup.stimulus,
-        reason: followup.reason,
-        sourceStimulusId: followup.stimulusId,
-        behaviorExecutionPlanId: plan.id,
-        behaviorExecutionActionId: action.id,
-        candidateId: followup.candidateId,
-        decisionId: followup.decisionId,
-      },
-      metadata: {
-        source: 'behavior-execution',
-        requestId: followup.id,
-        ...followup.metadata,
-      },
-    })
-
-    await this.eventBus.emit('behavior.followup.scheduled', {
-      stimulusId: followup.stimulusId,
-      lifeId: followup.lifeId,
-      candidateId: followup.candidateId,
-      taskId: task.id,
-      task,
-      planId: plan.id,
-      actionId: action.id,
-    })
-
-    return {
-      planId: plan.id,
-      actionId: action.id,
-      type: action.type,
-      completed: true,
-      startedAt,
-      scheduledTask: task,
-      emittedEvent: 'behavior.followup.scheduled',
-      metadata: action.metadata,
-    }
-  }
-
   private async dispatchMemoryUpdate(
     plan: BehaviorExecutionPlan,
     action: BehaviorExecutionAction,
     startedAt: number,
   ): Promise<Omit<BehaviorExecutionActionResult, 'completedAt'>> {
     const request = action.payload['request'] as MemoryUpdateRequest
-    await this.eventBus.emit('behavior.memory.update.requested', {
-      request,
-      planId: plan.id,
-      actionId: action.id,
+    // W3：memory-update 不再恒 completed——事件总线隔离 listener 错误
+    // （emit 不向调用方冒泡），改在 emit 窗口内订阅本次 action 关联的
+    // memory.update.failed（memory 服务 catch 里必发），失败时置为未完成。
+    let failure: unknown
+    const disposeFailureListener = this.eventBus.on('memory.update.failed', (payload) => {
+      if (payload.planId === plan.id && payload.actionId === action.id) {
+        failure = payload.error ?? new Error('memory update failed')
+      }
     })
+    try {
+      await this.eventBus.emit('behavior.memory.update.requested', {
+        request,
+        planId: plan.id,
+        actionId: action.id,
+      })
+    } finally {
+      disposeFailureListener()
+    }
+    if (failure !== undefined) throw failure
     return {
       planId: plan.id,
       actionId: action.id,

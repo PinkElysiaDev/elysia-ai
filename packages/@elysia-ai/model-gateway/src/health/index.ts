@@ -15,6 +15,8 @@ export interface ProviderHealthSnapshot {
   lastSuccessAt?: number
   lastFailureAt?: number
   lastErrorCode?: string
+  /** 最近一次失败的 maheshvara 稳定分类（与 observatory errorKind 同值域）。 */
+  lastErrorClass?: string
   averageLatencyMs?: number
 }
 
@@ -34,6 +36,7 @@ interface ProviderHealthState {
   lastSuccessAt?: number
   lastFailureAt?: number
   lastErrorCode?: string
+  lastErrorClass?: string
   latencies: number[]
   circuitOpenedAt?: number
   circuitProbeInFlight?: boolean
@@ -78,6 +81,9 @@ export class ProviderHealthTracker {
     state.consecutiveFailures++
     state.lastFailureAt = Date.now()
     state.lastErrorCode = this.resolveErrorCode(error)
+    if (error instanceof ProviderError && error.class) {
+      state.lastErrorClass = error.class
+    }
     state.circuitProbeInFlight = false
 
     if (
@@ -99,6 +105,7 @@ export class ProviderHealthTracker {
       lastSuccessAt: state.lastSuccessAt,
       lastFailureAt: state.lastFailureAt,
       lastErrorCode: state.lastErrorCode,
+      lastErrorClass: state.lastErrorClass,
       averageLatencyMs: this.averageLatency(state.latencies),
     }
   }

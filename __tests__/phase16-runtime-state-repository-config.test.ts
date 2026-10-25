@@ -111,7 +111,6 @@ function createState(lifeInstanceId: string, energy: number): HomeostasisState {
     mood: 0.6,
     sociability: 0.5,
     curiosity: 0.7,
-    responseThreshold: 0.4,
   }
 }
 

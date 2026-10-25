@@ -1,0 +1,38 @@
+{
+  "version": "0.2.0",
+  "name": "@elysia-ai/trigger",
+  "main": "lib/index.js",
+  "type": "module",
+  "types": "lib/index.d.ts",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PinkElysiaDev/elysia-ai.git"
+  },
+  "homepage": "https://github.com/PinkElysiaDev/elysia-ai",
+  "bugs": {
+    "url": "https://github.com/PinkElysiaDev/elysia-ai/issues"
+  },
+  "author": "PinkElysiaDev",
+  "files": [
+    "lib"
+  ],
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@elysia-ai/core": "^0.2.1",
+    "cron-parser": "^4.9.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.23.1",
+    "typescript": "^5.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=lib/index.cjs --external:@elysia-ai/core"
+  }
+}
