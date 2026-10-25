@@ -16,33 +16,41 @@ function clampMood(value: number | undefined, fallback: number): number {
   return Math.max(-1, Math.min(1, value))
 }
 
-function defaultState(lifeId: string, now: number): HomeostasisState {
+function defaultState(now: number): HomeostasisState {
   return {
-    lifeInstanceId: lifeId,
     timestamp: now,
     energy: 0.8,
     mood: 0,
     sociability: 0.5,
     curiosity: 0.5,
-    responseThreshold: 0.5,
   }
 }
 
 function resolveDelta(
-  lifeId: string,
   current: HomeostasisState,
   request: HomeostasisUpdateRequest,
 ): HomeostasisDelta {
   const requested = request.delta ?? {}
 
   return {
-    lifeInstanceId: lifeId,
     energy: requested.energy ?? 0,
     mood: requested.mood ?? 0,
     sociability: requested.sociability ?? 0,
     curiosity: requested.curiosity ?? 0,
-    responseThreshold: requested.responseThreshold ?? 0,
     reason: request.reason,
+  }
+}
+
+/** W3：归一只挑已知字段——旧文档可能带已退役字段（如 responseThreshold），
+ * 透传 spread 会让退役字段在每次 update 后永久残留。 */
+function normalizeState(state: HomeostasisState): HomeostasisState {
+  return {
+    timestamp: state.timestamp,
+    energy: state.energy,
+    mood: state.mood,
+    sociability: state.sociability,
+    curiosity: state.curiosity,
+    ...(state.metadata !== undefined ? { metadata: state.metadata } : {}),
   }
 }
 
@@ -53,13 +61,12 @@ function applyDelta(
   now: number,
 ): HomeostasisState {
   return {
-    ...current,
+    ...normalizeState(current),
     timestamp: now,
     energy: clampUnitOr(current.energy + delta.energy, current.energy),
     mood: clampMood(current.mood + delta.mood, current.mood),
     sociability: clampUnitOr(current.sociability + delta.sociability, current.sociability),
     curiosity: clampUnitOr(current.curiosity + delta.curiosity, current.curiosity),
-    responseThreshold: clampUnitOr(current.responseThreshold + delta.responseThreshold, current.responseThreshold),
     metadata: {
       ...current.metadata,
       ...request.metadata,
@@ -96,7 +103,7 @@ export class DefaultHomeostasisService implements HomeostasisService {
           })
 
           await this.eventBus.emit('homeostasis.updated', {
-            lifeInstanceId: result.state.lifeInstanceId,
+            lifeInstanceId: payload.request.lifeId,
             state: result.state,
             delta: result.delta,
             requestId: result.requestId,
@@ -131,13 +138,13 @@ export class DefaultHomeostasisService implements HomeostasisService {
 
   async getState(lifeId: string): Promise<HomeostasisState | undefined> {
     const state = await this.repository.getByLifeInstanceId(lifeId)
-    return state ?? undefined
+    return state ? normalizeState(state) : undefined
   }
 
   async update(request: HomeostasisUpdateRequest): Promise<HomeostasisUpdateResult> {
     const now = Date.now()
-    const current = await this.repository.getByLifeInstanceId(request.lifeId) ?? defaultState(request.lifeId, now)
-    const delta = resolveDelta(request.lifeId, current, request)
+    const current = await this.repository.getByLifeInstanceId(request.lifeId) ?? defaultState(now)
+    const delta = resolveDelta(current, request)
     const state = applyDelta(current, delta, request, now)
 
     await this.repository.save(request.lifeId, state)

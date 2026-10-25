@@ -21,8 +21,6 @@ export interface Config {
   curiosityDecayPerTick: number
   maxValue: number
   minValue: number
-  responseThresholdMin: number
-  responseThresholdMax: number
   restoreOnStartup: boolean
   // 【D3-1 恢复动力学】各指标的静息基线：tick 时指标朝基线移动而非单向衰减到 0。
   // 高于基线则向下衰减，低于基线则向上恢复（idle 恢复）。默认取初始值。
@@ -34,17 +32,10 @@ export interface Config {
   recoveryFactor?: number
 }
 
-// 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-// 绋虫€佽绠?// 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// ─── 稳态计算 ───
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
-}
-
-function computeThreshold(energy: number, mood: number, sociability: number, config: Config): number {
-  // 褰撹兘閲忋€佸績鎯呫€佺ぞ浜ゅ€惧悜閮介珮鏃堕檷浣庨槇鍊硷紙鏇存効鎰忓搷搴旓�?
-  const baseThreshold = (1 - energy) * 0.4 + (1 - mood) * 0.3 + (1 - sociability) * 0.3
-  return clamp(baseThreshold, config.responseThresholdMin, config.responseThresholdMax)
 }
 
 /**
@@ -59,15 +50,13 @@ function relaxTowardBaseline(current: number, baseline: number, decayRate: numbe
   return current
 }
 
-function createInitialState(lifeInstanceId: string, config: Config, timestamp: number): HomeostasisState {
+function createInitialState(config: Config, timestamp: number): HomeostasisState {
   return {
-    lifeInstanceId,
     timestamp,
     energy: config.initialEnergy,
     mood: config.initialMood,
     sociability: config.initialSociability,
     curiosity: config.initialCuriosity,
-    responseThreshold: computeThreshold(config.initialEnergy, config.initialMood, config.initialSociability, config),
   }
 }
 
@@ -105,31 +94,25 @@ function tick(
   )
 
   const newState: HomeostasisState = {
-    lifeInstanceId: state.lifeInstanceId,
     timestamp,
     energy: newEnergy,
     mood: newMood,
     sociability: newSociability,
     curiosity: newCuriosity,
-    responseThreshold: computeThreshold(newEnergy, newMood, newSociability, config),
   }
 
   const delta: HomeostasisDelta = {
-    lifeInstanceId: state.lifeInstanceId,
     energy: newEnergy - prevState.energy,
     mood: newMood - prevState.mood,
     sociability: newSociability - prevState.sociability,
     curiosity: newCuriosity - prevState.curiosity,
-    responseThreshold: newState.responseThreshold - prevState.responseThreshold,
     reason,
   }
 
   return { state: newState, delta }
 }
 
-// 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-// Plugin apply
-// 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// ─── Plugin apply ───
 
 type HomeostasisLoggerLike = {
   info(...args: unknown[]): void
@@ -181,7 +164,7 @@ export function createHomeostasisPluginRuntime(options: HomeostasisPluginRuntime
       }
     }
 
-    const initialState = createInitialState(lifeId, config, Date.now())
+    const initialState = createInitialState(config, Date.now())
     await repo.save(lifeId, initialState)
 
     logger.info('homeostasis state initialized', {
@@ -197,7 +180,18 @@ export function createHomeostasisPluginRuntime(options: HomeostasisPluginRuntime
   // tick 实现 idle 恢复/衰减动力学，仅作用于被路由的生命，不再遍历 lifeRegistry.getAll() 全量空转。
   // 注：sentiment 驱动的正向回升由 behavior 层经 behavior.homeostasis.update.requested
   // 显式请求（runtime homeostasis service 已消费该事件），那是 sentiment-aware 的正确入口。
-  const disposeProjectionRouted = eventBus.on('projection.routed', async ({ stimulusId, routing }) => {
+  const disposeProjectionRouted = eventBus.on('projection.routed', async ({ stimulusId, routing, triggerSource, stimulusType }) => {
+    // 合成触发刺激与系统事件（bot-sent/公告）不驱动衰减 tick：事件型衰减
+    // 按发生次数计，新架构下这两类刺激量远大于真实消息，不过滤会加速耗尽
+    // 能量（P2-19 恶化因素之一）。
+    if (triggerSource || stimulusType === 'system') {
+      logger.debug('homeostasis tick skipped: synthetic/system stimulus', {
+        plugin: 'elysia-ai-homeostasis',
+        phase: 'tick',
+        stimulusId,
+      })
+      return
+    }
     const routedLifeIds = routing.lifeIds
     if (!routedLifeIds || routedLifeIds.length === 0) {
       logger.debug('homeostasis tick skipped: no routed life for stimulus', {

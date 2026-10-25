@@ -35,6 +35,7 @@ import {
   clampUnit,
   clampUnitOr,
 } from '@elysia-ai/shared'
+import type { MongoFindOptions } from '@elysia-ai/shared'
 
 
 export const internalName = 'elysia-ai-memory'
@@ -665,7 +666,9 @@ export class RuleBasedMemoryContextProvider implements MemoryContextProvider {
     if (entry.visibility === 'global') return true
     if (entry.visibility === 'habitat') return !entry.habitatId || entry.habitatId === request.habitatId
     if (entry.visibility === 'shared') {
-      if (entry.threadId && request.threadId) return entry.threadId === request.threadId
+      // W3：线程限定的 shared 记忆不泄漏到 habitat 级请求——
+      // 请求未带 threadId 时不可见（此前会落到 habitat 匹配或直接放行）。
+      if (entry.threadId) return !!request.threadId && entry.threadId === request.threadId
       if (entry.habitatId && request.habitatId) return entry.habitatId === request.habitatId
       return true
     }
@@ -759,17 +762,19 @@ export class RuleBasedMemoryContextProvider implements MemoryContextProvider {
 }
 
 export interface MongoMemoryDocument {
-  id: string
   entry: MemoryEntry
-  createdAt: number
-  updatedAt: number
 }
 
 export interface MongoMemoryCollection {
   findOne(filter: Record<string, unknown>): Promise<MongoMemoryDocument | null>
-  find(filter: Record<string, unknown>): { toArray(): Promise<MongoMemoryDocument[]> } | Promise<MongoMemoryDocument[]>
+  find(
+    filter: Record<string, unknown>,
+    options?: MongoFindOptions,
+  ): { toArray(): Promise<MongoMemoryDocument[]> } | Promise<MongoMemoryDocument[]>
+  /** 服务端计数（可选：fake/内存驱动可缺省，gateway.count 回退 findMany 计数）。 */
+  countDocuments?(filter: Record<string, unknown>): Promise<number>
   updateOne(
-    filter: { id: string },
+    filter: Record<string, unknown>,
     update: {
       $set?: Record<string, unknown>
       $setOnInsert?: Record<string, unknown>
@@ -777,7 +782,7 @@ export interface MongoMemoryCollection {
     },
     options: { upsert: boolean },
   ): Promise<unknown>
-  deleteOne?(filter: { id: string }): Promise<unknown>
+  deleteOne?(filter: Record<string, unknown>): Promise<unknown>
   createIndex?(keys: Record<string, 1 | -1>, options?: Record<string, unknown>): Promise<unknown>
 }
 
@@ -895,6 +900,43 @@ export class MemoryMemoryRepository implements MemoryRepository {
       .sort((a, b) => b.createdAt - a.createdAt)
       .map(cloneEntry)
   }
+
+  /**
+   * 【B3】enforceMaxEntries 计数化能力（内存版）：过滤计数 + (importance asc, createdAt asc) 溢出集。
+   * 与服务层旧路径语义一致：只统计/淘汰 active 记忆，archived 不占上限（P0-4）。
+   */
+  async countActiveByLife(lifeId: string): Promise<number> {
+    let count = 0
+    for (const entry of this.entries.values()) {
+      if (entry.lifeId === lifeId && entry.status === 'active') count += 1
+    }
+    return count
+  }
+
+  async listOverflowingActiveByLife(lifeId: string, limit: number): Promise<MemoryEntry[]> {
+    return [...this.entries.values()]
+      .filter((entry) => entry.lifeId === lifeId && entry.status === 'active')
+      .sort((a, b) => {
+        const importance = a.importance - b.importance
+        if (importance !== 0) return importance
+        return a.createdAt - b.createdAt
+      })
+      .slice(0, limit)
+      .map(cloneEntry)
+  }
+}
+
+
+/**
+ * 【B3】enforceMaxEntries 的计数化能力（可选能力，服务层鸭子类型探测）：
+ * Mongo 走 countDocuments + 溢出集服务端直查；内存仓储走过滤计数。
+ * 未实现该能力的第三方仓储自动回退旧的 listByLifeId 窗口拉取路径。
+ */
+export interface MemoryEntryCapacityRepository {
+  /** lifeId 下 active 记忆总数。 */
+  countActiveByLife(lifeId: string): Promise<number>
+  /** (importance asc, createdAt asc) 序的前 limit 条 active 记忆（上限溢出集）。 */
+  listOverflowingActiveByLife(lifeId: string, limit: number): Promise<MemoryEntry[]>
 }
 
 
@@ -904,6 +946,88 @@ export class MemoryMemoryRepository implements MemoryRepository {
  */
 export interface AtomicAccessRepository {
   incrementAccess(id: string, now: number): Promise<MemoryEntry | undefined>
+}
+
+/** 非空数组归一（空数组在 includesAny 语义下等于无约束）。 */
+function nonEmptyArray<T>(value: T[] | undefined): T[] | undefined {
+  return value && value.length > 0 ? value : undefined
+}
+
+/**
+ * 【B2】MemoryQuery → Mongo filter 下推映射。
+ * 只下推可精确表达的维度（等值 / $in / $gte / $lte / $elemMatch）：
+ * - text 子串匹配与 tags 大小写不敏感 ALL 语义无法精确下推（$in 是大小写敏感的
+ *   "任一命中"，会把 'Prod' 排除在 ['prod'] 之外），留在内存精滤（见 query()）；
+ * - status：includeDeleted 时不加状态键；否则默认排除 deleted，指定时按 $in
+ *   （与内存版 includesAny 语义一致；statuses 含 deleted 时叠加 $ne）。
+ */
+function buildMemoryFilter(query: MemoryQuery): Record<string, unknown> {
+  const filter: Record<string, unknown> = { 'entry.lifeId': query.lifeId }
+
+  const statuses = nonEmptyArray(normalizeArray(query.status))
+  if (!query.includeDeleted) {
+    filter['entry.status'] = statuses
+      ? (statuses.includes('deleted') ? { $in: statuses, $ne: 'deleted' } : { $in: statuses })
+      : { $ne: 'deleted' }
+  } else if (statuses) {
+    filter['entry.status'] = { $in: statuses }
+  }
+
+  const equalities: Array<[keyof MemoryQuery, string]> = [
+    ['actorId', 'entry.actorId'],
+    ['habitatId', 'entry.habitatId'],
+    ['threadId', 'entry.threadId'],
+    ['projectionId', 'entry.projectionId'],
+    ['ownerId', 'entry.ownerId'],
+    ['eventId', 'entry.eventId'],
+    ['eventType', 'entry.eventType'],
+    ['stimulusId', 'entry.source.stimulusId'],
+  ]
+  for (const [queryKey, filterKey] of equalities) {
+    const value = query[queryKey]
+    if (value !== undefined) filter[filterKey] = value
+  }
+
+  const inclusions: Array<[keyof MemoryQuery, string]> = [
+    ['scope', 'entry.scope'],
+    ['kind', 'entry.kind'],
+    ['ownerType', 'entry.ownerType'],
+    ['visibility', 'entry.visibility'],
+  ]
+  for (const [queryKey, filterKey] of inclusions) {
+    const values = nonEmptyArray(normalizeArray(query[queryKey] as string | string[] | undefined))
+    if (values) filter[filterKey] = { $in: values }
+  }
+
+  if (query.minImportance !== undefined) filter['entry.importance'] = { $gte: query.minImportance }
+  if (query.minConfidence !== undefined) filter['entry.confidence'] = { $gte: query.minConfidence }
+  if (query.createdAfter !== undefined) filter['entry.createdAt'] = { $gte: query.createdAfter }
+  if (query.createdBefore !== undefined) {
+    filter['entry.createdAt'] = { ...(filter['entry.createdAt'] as object), $lte: query.createdBefore }
+  }
+
+    if (query.relationTargetType !== undefined
+      || query.relationTargetId !== undefined
+      || query.relationRole !== undefined) {
+      const elemMatch: Record<string, unknown> = {}
+      if (query.relationTargetType !== undefined) elemMatch.targetType = query.relationTargetType
+      if (query.relationTargetId !== undefined) elemMatch.targetId = query.relationTargetId
+      if (query.relationRole !== undefined) elemMatch.role = query.relationRole
+      filter['entry.relations'] = { $elemMatch: elemMatch }
+    }
+
+  return filter
+}
+
+/**
+ * 【B2】MemoryQuery 排序 → Mongo sort：orderBy（默认 createdAt）+ asc/desc；
+ * 并列键固定 createdAt 倒序（对齐内存比较器的 tie-break `b.createdAt - a.createdAt`）。
+ */
+function buildMemorySort(query: MemoryQuery): Record<string, 1 | -1> {
+  const orderBy = query.orderBy ?? 'createdAt'
+  const direction: 1 | -1 = query.order === 'asc' ? 1 : -1
+  if (orderBy === 'createdAt') return { 'entry.createdAt': direction }
+  return { [`entry.${orderBy}`]: direction, 'entry.createdAt': -1 }
 }
 
 export class MongoMemoryRepository extends MemoryMemoryRepository {
@@ -919,10 +1043,20 @@ export class MongoMemoryRepository extends MemoryMemoryRepository {
       modelKey: 'entry',
       toModel: (doc) => doc.entry,
       cloneModel: cloneEntry,
+      // 【B4】索引与查询下推形状对齐：
+      // - life_created：lifeId 维度的默认 createdAt 排序分页；
+      // - stimulus：listByStimulusId（写路径去重查找）无 lifeId 维度（签名只有 stimulusId，
+      //   跨 life 查询），故保留单字段前缀；lifeId 前缀复合索引无法服务该形状；
+      // - life_status_owner：collectCandidates 的 ownerType/ownerId/visibility 等值查询；
+      // - life_importance：orderBy importance 的候选收集与 enforceMaxEntries 溢出排序；
+      // - relations：relationTargetType/Id 的 $elemMatch 查询。
       indexes: options.ensureIndexes === false ? [] : [
-        { keys: { id: 1 }, options: { unique: true, name: `${name}_id_unique` } },
+        { keys: { 'entry.id': 1 }, options: { unique: true, name: `${name}_id_unique` } },
         { keys: { 'entry.lifeId': 1, 'entry.createdAt': -1 }, options: { name: `${name}_life_created` } },
         { keys: { 'entry.source.stimulusId': 1 }, options: { name: `${name}_stimulus` } },
+        { keys: { 'entry.lifeId': 1, 'entry.status': 1, 'entry.ownerType': 1, 'entry.ownerId': 1, 'entry.createdAt': -1 }, options: { name: `${name}_life_status_owner` } },
+        { keys: { 'entry.lifeId': 1, 'entry.status': 1, 'entry.importance': -1 }, options: { name: `${name}_life_importance` } },
+        { keys: { 'entry.relations.targetType': 1, 'entry.relations.targetId': 1 }, options: { name: `${name}_relations` } },
       ],
     })
   }
@@ -936,17 +1070,6 @@ export class MongoMemoryRepository extends MemoryMemoryRepository {
     if (await super.getById(id)) return
     const fromMongo = await this.gateway.findById(id)
     if (fromMongo) await super.save(fromMongo)
-  }
-
-  /**
-   * 【D1-1】按 lifeId 服务端缩小集合后，在子集上跑继承的内存过滤逻辑。
-   * 取代旧的 hydrate() 全表加载：只 find({ 'entry.lifeId': lifeId })，零语义偏移。
-   */
-  private async scopedByLife(lifeId: string): Promise<MemoryMemoryRepository> {
-    const entries = await this.gateway.findMany({ 'entry.lifeId': lifeId })
-    const scoped = new MemoryMemoryRepository()
-    for (const entry of entries) await scoped.save(entry)
-    return scoped
   }
 
   async getById(id: string): Promise<MemoryEntry | undefined> {
@@ -997,21 +1120,70 @@ export class MongoMemoryRepository extends MemoryMemoryRepository {
     if (fromMongo) await super.save(fromMongo)
   }
 
+  /**
+   * 【B2】查询下推：filter/sort/limit 直接下发 Mongo（findMany 单次往返），
+   * 取代 D1-1 的 scopedByLife 子集加载路径（不再为查询物化整个 life 的内存仓储）。
+   *
+   * 语义对齐说明：
+   * - 可精确下推的维度（等值/$in/$gte/$lte/$elemMatch、排序）由服务端完成；
+   * - 窗口：服务端取 [0, limit+offset)（精滤路径放大 3 倍），页切片
+   *   slice(offset, offset+limit) 在内存完成——skip 不下推，保证精滤路径与
+   *   精确路径共用同一条切片逻辑；
+   * - text（子串）与 tags（大小写不敏感 ALL）无法精确下推：拉取放大窗口后
+   *   在内存精滤再截断（放大约束为既定取舍，命中集超过放大窗口时 total/尾页可能偏小）；
+   * - total 为下推窗口内的计数（limit/offset 存在时不再全量计数——无生产消费方依赖全量 total）。
+   */
   async query(query: MemoryQuery): Promise<MemorySearchResult> {
-    const scoped = await this.scopedByLife(query.lifeId)
-    return scoped.query(query)
+    const needsRefine = (query.text ?? '').trim().length > 0 || (query.tags?.length ?? 0) > 0
+    const offset = query.offset ?? 0
+    const windowLimit = query.limit !== undefined ? query.limit + offset : undefined
+    const fetchLimit = needsRefine && windowLimit !== undefined ? windowLimit * 3 : windowLimit
+
+    const findOptions: MongoFindOptions = { sort: buildMemorySort(query) }
+    if (fetchLimit !== undefined) findOptions.limit = fetchLimit
+
+    const fetched = await this.gateway.findMany(buildMemoryFilter(query), findOptions)
+
+    const matched = needsRefine
+      ? fetched
+        .filter((entry) => textMatches(entry, query.text))
+        .filter((entry) => hasAllTags(entry.tags, query.tags))
+      : fetched
+
+    return {
+      entries: matched.slice(offset, query.limit !== undefined ? offset + query.limit : undefined),
+      total: matched.length,
+      query,
+      retrievedAt: Date.now(),
+    }
   }
 
   async listByLifeId(lifeId: string, options?: MemoryQueryOptions): Promise<MemoryEntry[]> {
-    const scoped = await this.scopedByLife(lifeId)
-    return scoped.listByLifeId(lifeId, options)
+    const result = await this.query({ lifeId, ...options })
+    return result.entries
   }
 
+  /**
+   * 【B2】直查下推。内存版语义：跨 life（签名无 lifeId）、排除 deleted、createdAt 倒序。
+   */
   async listByStimulusId(stimulusId: string): Promise<MemoryEntry[]> {
-    const entries = await this.gateway.findMany({ 'entry.source.stimulusId': stimulusId })
-    const scoped = new MemoryMemoryRepository()
-    for (const entry of entries) await scoped.save(entry)
-    return scoped.listByStimulusId(stimulusId)
+    return this.gateway.findMany(
+      { 'entry.source.stimulusId': stimulusId, 'entry.status': { $ne: 'deleted' } },
+      { sort: { 'entry.createdAt': -1 } },
+    )
+  }
+
+  /** 【B3】服务端计数（countDocuments），取代 maxEntries+1000 窗口全拉。 */
+  async countActiveByLife(lifeId: string): Promise<number> {
+    return this.gateway.count({ 'entry.lifeId': lifeId, 'entry.status': 'active' })
+  }
+
+  /** 【B3】溢出集直查：(importance asc, createdAt asc) 序前 limit 条 active 记忆。 */
+  async listOverflowingActiveByLife(lifeId: string, limit: number): Promise<MemoryEntry[]> {
+    return this.gateway.findMany(
+      { 'entry.lifeId': lifeId, 'entry.status': 'active' },
+      { sort: { 'entry.importance': 1, 'entry.createdAt': 1 }, limit },
+    )
   }
 }
 
@@ -1113,7 +1285,7 @@ export class DefaultMemoryService implements MemoryService {
       : applyDeterministicAttribution(request)
     const content = resolveMemoryContent(attributed)
     const existing = await this.findExistingEntry(attributed)
-    const baseImportance = attributed.importance ?? attributed.salience ?? this.options.defaultImportance ?? 0.5
+    const baseImportance = attributed.importance ?? this.options.defaultImportance ?? 0.5
     const importance = clampUnitOr(baseImportance, 0.5)
     const confidence = clampUnitOr(attributed.confidence, this.options.defaultConfidence ?? 0.7)
 
@@ -1368,7 +1540,10 @@ export class DefaultMemoryService implements MemoryService {
       && entry.actorId === request.actorId
       && entry.ownerType === request.ownerType
       && entry.ownerId === request.ownerId
+      // W3：archived 记忆不再被 merge 复活——上限淘汰的条目保持归档，
+      // 同刺激新更新走新建（此前会静默合并回已归档条目）。
       && entry.status !== 'deleted'
+      && entry.status !== 'archived'
     ))
   }
 
@@ -1377,24 +1552,32 @@ export class DefaultMemoryService implements MemoryService {
     if (!maxEntries || maxEntries <= 0) return
 
     // 只统计 active 记忆（P0-4）：archived 记忆不占上限、也不会被再次选中。
-    // 此前 archived 也计入，条目一旦归档只增不减，archived 数达到上限后
-    // 每次新建记忆都会把溢出数量的条目（含全部 active）归档，活跃记忆
-    // 会被逐步清空。
-    const entries = await this.repository.listByLifeId(lifeId, {
-      includeDeleted: false,
-      status: 'active',
-      limit: maxEntries + 1000,
-    })
-
-    if (entries.length <= maxEntries) return
-
-    const overflow = entries
-      .sort((a, b) => {
-        const importance = a.importance - b.importance
-        if (importance !== 0) return importance
-        return a.createdAt - b.createdAt
+    // 【B3】仓储实现计数能力（内存/Mongo 均内置）时走 count + 溢出集直查，
+    // 只在超限时拉取恰好 count-max 条；第三方仓储未实现时回退旧的窗口拉取路径。
+    const capacity = this.repository as Partial<MemoryEntryCapacityRepository>
+    let overflow: MemoryEntry[]
+    if (typeof capacity.countActiveByLife === 'function'
+      && typeof capacity.listOverflowingActiveByLife === 'function') {
+      const count = await capacity.countActiveByLife(lifeId)
+      if (count <= maxEntries) return
+      overflow = await capacity.listOverflowingActiveByLife(lifeId, count - maxEntries)
+    } else {
+      const entries = await this.repository.listByLifeId(lifeId, {
+        includeDeleted: false,
+        status: 'active',
+        limit: maxEntries + 1000,
       })
-      .slice(0, entries.length - maxEntries)
+
+      if (entries.length <= maxEntries) return
+
+      overflow = entries
+        .sort((a, b) => {
+          const importance = a.importance - b.importance
+          if (importance !== 0) return importance
+          return a.createdAt - b.createdAt
+        })
+        .slice(0, entries.length - maxEntries)
+    }
 
     for (const entry of overflow) {
       await this.repository.update(entry.id, {

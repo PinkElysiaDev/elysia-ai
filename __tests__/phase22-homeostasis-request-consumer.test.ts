@@ -76,13 +76,12 @@ describe('Phase 22 Homeostasis Request Consumer 一体化测试', () => {
     expect(event.requestId).toMatch(/^homeostasis-update-1000-/)
     expect(event.planId).toBe(plan.id)
     expect(event.actionId).toBe(plan.actions.find((action) => action.type === 'homeostasis-update')?.id)
-    expect(event.state.lifeInstanceId).toBe('life-phase22')
     expect(event.state.energy).toBeLessThan(0.8)
     expect(event.delta.reason).toBe('phase22 homeostasis request consumer test')
     expect(event.result?.updated).toBe(true)
 
     const stored = await runtime.stateRepository.getByLifeInstanceId('life-phase22')
-    expect(stored?.lifeInstanceId).toBe('life-phase22')
+    expect(typeof stored?.energy).toBe('number')
     expect(stored?.metadata?.lastHomeostasisUpdateRequestId).toBe(event.requestId)
 
     const trace = observatory.getRecentEvents()
@@ -101,13 +100,11 @@ describe('Phase 22 Homeostasis Request Consumer 一体化测试', () => {
   it('HomeostasisService 会合并已有 state 并保留 metadata', async () => {
     const stateRepository = new MemoryStateRepository<HomeostasisState>()
     await stateRepository.save('life-phase22-merge', {
-      lifeInstanceId: 'life-phase22-merge',
       timestamp: 500,
       energy: 0.6,
       mood: 0.1,
       sociability: 0.4,
       curiosity: 0.5,
-      responseThreshold: 0.3,
       metadata: {
         existing: true,
       },
@@ -139,7 +136,6 @@ describe('Phase 22 Homeostasis Request Consumer 一体化测试', () => {
     expect(result.state.mood).toBeCloseTo(-0.1)
     expect(result.state.sociability).toBeCloseTo(0.6)
     expect(result.state.curiosity).toBeCloseTo(0.5)
-    expect(result.state.responseThreshold).toBeCloseTo(0.3)
     expect(result.state.metadata).toMatchObject({
       existing: true,
       requestMeta: true,
@@ -149,7 +145,7 @@ describe('Phase 22 Homeostasis Request Consumer 一体化测试', () => {
     await runtime.stop()
   })
 
-  it('HomeostasisService 会 clamp energy/sociability/curiosity/responseThreshold 到 0..1 且 mood 到 -1..1', async () => {
+  it('HomeostasisService 会 clamp energy/sociability/curiosity 到 0..1 且 mood 到 -1..1', async () => {
     const runtime = createDefaultRuntime()
 
     await runtime.start()
@@ -163,7 +159,6 @@ describe('Phase 22 Homeostasis Request Consumer 一体化测试', () => {
         mood: 10,
         sociability: 10,
         curiosity: 10,
-        responseThreshold: 10,
       },
       createdAt: 1000,
     })
@@ -172,7 +167,6 @@ describe('Phase 22 Homeostasis Request Consumer 一体化测试', () => {
     expect(high.state.mood).toBe(1)
     expect(high.state.sociability).toBe(1)
     expect(high.state.curiosity).toBe(1)
-    expect(high.state.responseThreshold).toBe(1)
 
     const low = await runtime.homeostasisService.update({
       id: 'homeostasis-request-clamp-low',
@@ -183,7 +177,6 @@ describe('Phase 22 Homeostasis Request Consumer 一体化测试', () => {
         mood: -10,
         sociability: -10,
         curiosity: -10,
-        responseThreshold: -10,
       },
       createdAt: 2000,
     })
@@ -192,7 +185,6 @@ describe('Phase 22 Homeostasis Request Consumer 一体化测试', () => {
     expect(low.state.mood).toBe(-1)
     expect(low.state.sociability).toBe(0)
     expect(low.state.curiosity).toBe(0)
-    expect(low.state.responseThreshold).toBe(0)
 
     await runtime.stop()
   })

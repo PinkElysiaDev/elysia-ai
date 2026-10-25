@@ -8,8 +8,6 @@ export interface MongoStateDocument<TState = Record<string, unknown>> {
   lifeInstanceId: string
   stateType: string
   state: TState
-  createdAt: number
-  updatedAt: number
 }
 
 export interface MongoStateCollection<TState = Record<string, unknown>> {
@@ -19,12 +17,10 @@ export interface MongoStateCollection<TState = Record<string, unknown>> {
     update: {
       $set: {
         state: TState
-        updatedAt: number
       }
       $setOnInsert: {
         lifeInstanceId: string
         stateType: string
-        createdAt: number
       }
     },
     options: { upsert: true },
@@ -73,8 +69,6 @@ export class MongoStateRepository<TState = Record<string, unknown>> implements L
   }
 
   async save(lifeInstanceId: string, state: TState): Promise<void> {
-    const now = Date.now()
-
     await this.collection.updateOne(
       {
         lifeInstanceId,
@@ -83,12 +77,10 @@ export class MongoStateRepository<TState = Record<string, unknown>> implements L
       {
         $set: {
           state,
-          updatedAt: now,
         },
         $setOnInsert: {
           lifeInstanceId,
           stateType: this.stateType,
-          createdAt: now,
         },
       },
       {

@@ -25,7 +25,7 @@ import * as homeostasisPlugin from '../packages/elysia-ai-homeostasis/src/index.
 function createCtx(runtime: Runtime) {
   const disposeHandlers: Array<() => void> = []
   const ctx: any = {
-    'elysia-ai-runtime': runtime,
+    'elysia.runtime': runtime,
     logger: () => ({ info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn() }),
     on(event: string, handler: (...args: any[]) => any) {
       if (event === 'dispose') disposeHandlers.push(handler)
@@ -48,8 +48,6 @@ function installHomeostasis(ctx: any, overrides: Record<string, number> = {}) {
     curiosityDecayPerTick: 0.1,
     maxValue: 1,
     minValue: 0,
-    responseThresholdMin: 0.3,
-    responseThresholdMax: 0.8,
     restoreOnStartup: true,
     recoveryFactor: 0.5,
     ...overrides,
@@ -173,7 +171,7 @@ describe('D3-1 内稳态恢复动力学', () => {
 describe('D3-2 core Zod schema', () => {
   it('homeostasisStateSchema 校验合法/拒绝非法', () => {
     expect(homeostasisStateSchema.safeParse({
-      lifeInstanceId: 'L1', timestamp: 1, energy: 0.5, mood: 0.5, sociability: 0.5, curiosity: 0.5, responseThreshold: 0.4,
+      lifeInstanceId: 'L1', timestamp: 1, energy: 0.5, mood: 0.5, sociability: 0.5, curiosity: 0.5,
     }).success).toBe(true)
     expect(homeostasisStateSchema.safeParse({ lifeInstanceId: 'L1' }).success).toBe(false)
   })

@@ -5,9 +5,6 @@ export type BondTargetType =
   | 'thread'
   | 'projection'
   | 'external'
-  | 'individual'
-  | 'collective'
-  | 'channel'
 
 export type BondStatus =
   | 'active'
@@ -36,26 +33,10 @@ export interface BondSource {
 export interface Bond {
   id: string
   lifeId: string
-  /**
-   * @deprecated use lifeId
-   */
-  lifeInstanceId?: string
   targetId: string
   targetType: BondTargetType
   status: BondStatus
   metrics: BondMetrics
-  /**
-   * @deprecated use metrics.familiarity
-   */
-  familiarity?: number
-  /**
-   * @deprecated use metrics.intimacy
-   */
-  intimacy?: number
-  /**
-   * @deprecated use metrics.trust
-   */
-  trust?: number
   summary?: string
   tags?: string[]
   actorId?: string

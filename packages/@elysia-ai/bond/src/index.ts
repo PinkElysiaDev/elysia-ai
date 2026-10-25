@@ -28,6 +28,7 @@ import {
   clampUnit,
   clampUnitOr,
 } from '@elysia-ai/shared'
+import type { MongoFindOptions } from '@elysia-ai/shared'
 
 
 export const internalName = 'elysia-ai-bond'
@@ -150,10 +151,66 @@ function compareBonds(query: BondQuery): (a: Bond, b: Bond) => number {
 
 function normalizeTargetType(targetType: BondTargetType | undefined): BondTargetType {
   if (!targetType) return 'actor'
-  if (targetType === 'individual') return 'actor'
-  if (targetType === 'collective') return 'habitat'
-  if (targetType === 'channel') return 'habitat'
   return targetType
+}
+
+/** 非空数组归一（空数组在 includesAny 语义下等于无约束）。 */
+function nonEmptyArray<T>(value: T[] | undefined): T[] | undefined {
+  return value && value.length > 0 ? value : undefined
+}
+
+/**
+ * 【C】BondQuery → Mongo filter 下推映射。
+ * 只下推可精确表达的维度（等值 / $in（含 targetType 别名展开）/ $gte / $lte）；
+ * tags 大小写不敏感 ALL 语义不下推（拉取放大窗口后内存精滤）。
+ * status：includeDeleted 时不加状态键；否则默认排除 deleted，指定时按 $in。
+ */
+function buildBondFilter(query: BondQuery): Record<string, unknown> {
+  const filter: Record<string, unknown> = { 'bond.lifeId': query.lifeId }
+
+  const statuses = nonEmptyArray(normalizeArray(query.status))
+  if (!query.includeDeleted) {
+    filter['bond.status'] = statuses
+      ? (statuses.includes('deleted') ? { $in: statuses, $ne: 'deleted' } : { $in: statuses })
+      : { $ne: 'deleted' }
+  } else if (statuses) {
+    filter['bond.status'] = { $in: statuses }
+  }
+
+  if (query.targetId !== undefined) filter['bond.targetId'] = query.targetId
+
+  const targetTypes = nonEmptyArray(normalizeArray(query.targetType)?.map(normalizeTargetType))
+  if (targetTypes) {
+    filter['bond.targetType'] = { $in: [...new Set(targetTypes)] }
+  }
+
+  if (query.minFamiliarity !== undefined) filter['bond.metrics.familiarity'] = { $gte: query.minFamiliarity }
+  if (query.minIntimacy !== undefined) filter['bond.metrics.intimacy'] = { $gte: query.minIntimacy }
+  if (query.minTrust !== undefined) filter['bond.metrics.trust'] = { $gte: query.minTrust }
+  if (query.minTension !== undefined) filter['bond.metrics.tension'] = { $gte: query.minTension }
+  if (query.minDependence !== undefined) filter['bond.metrics.dependence'] = { $gte: query.minDependence }
+
+  if (query.updatedAfter !== undefined) filter['bond.updatedAt'] = { $gte: query.updatedAfter }
+  if (query.updatedBefore !== undefined) {
+    filter['bond.updatedAt'] = { ...(filter['bond.updatedAt'] as object), $lte: query.updatedBefore }
+  }
+
+  return filter
+}
+
+/**
+ * 【C】BondQuery 排序 → Mongo sort：orderBy（默认 updatedAt）+ asc/desc；
+ * 并列键固定 updatedAt 倒序（对齐内存比较器的 tie-break `b.updatedAt - a.updatedAt`）。
+ * interactionCount/createdAt/updatedAt 取顶层字段，五维指标取 bond.metrics.*。
+ */
+function buildBondSort(query: BondQuery): Record<string, 1 | -1> {
+  const orderBy = query.orderBy ?? 'updatedAt'
+  const direction: 1 | -1 = query.order === 'asc' ? 1 : -1
+  if (orderBy === 'updatedAt') return { 'bond.updatedAt': direction }
+  const path = orderBy === 'createdAt' || orderBy === 'interactionCount'
+    ? `bond.${orderBy}`
+    : `bond.metrics.${orderBy}`
+  return { [path]: direction, 'bond.updatedAt': -1 }
 }
 
 export interface RuleBasedBondContextProviderOptions {
@@ -461,17 +518,19 @@ export class RuleBasedBondContextProvider implements BondContextProvider {
 }
 
 export interface MongoBondDocument {
-  id: string
   bond: Bond
-  createdAt: number
-  updatedAt: number
 }
 
 export interface MongoBondCollection {
   findOne(filter: Record<string, unknown>): Promise<MongoBondDocument | null>
-  find(filter: Record<string, unknown>): { toArray(): Promise<MongoBondDocument[]> } | Promise<MongoBondDocument[]>
+  find(
+    filter: Record<string, unknown>,
+    options?: MongoFindOptions,
+  ): { toArray(): Promise<MongoBondDocument[]> } | Promise<MongoBondDocument[]>
+  /** 服务端计数（可选：fake/内存驱动可缺省，gateway.count 回退 findMany 计数）。 */
+  countDocuments?(filter: Record<string, unknown>): Promise<number>
   updateOne(
-    filter: { id: string },
+    filter: Record<string, unknown>,
     update: {
       $set?: Record<string, unknown>
       $setOnInsert?: Record<string, unknown>
@@ -479,7 +538,7 @@ export interface MongoBondCollection {
     },
     options: { upsert: boolean },
   ): Promise<unknown>
-  deleteOne?(filter: { id: string }): Promise<unknown>
+  deleteOne?(filter: Record<string, unknown>): Promise<unknown>
   createIndex?(keys: Record<string, 1 | -1>, options?: Record<string, unknown>): Promise<unknown>
 }
 
@@ -534,7 +593,6 @@ export class MemoryBondRepository implements BondRepository {
       ...patch,
       id: current.id,
       lifeId: current.lifeId,
-      lifeInstanceId: current.lifeInstanceId,
       targetId: current.targetId,
       targetType: patch.targetType ?? current.targetType,
       metrics: patch.metrics ? { ...current.metrics, ...patch.metrics } : current.metrics,
@@ -610,9 +668,15 @@ export class MongoBondRepository extends MemoryBondRepository {
       modelKey: 'bond',
       toModel: (doc) => doc.bond,
       cloneModel: cloneBond,
+      // 【C】索引与查询下推形状对齐：
+      // - life_status_target：query()/getByLifeAndTarget 的 lifeId+status+targetType+targetId
+      //   等值形状；
+      // - life_interaction：orderBy interactionCount 的候选收集；
+      // - life_updated：默认 updatedAt 排序分页（新复合无 updatedAt 尾键，无法替代，保留）。
       indexes: options.ensureIndexes === false ? [] : [
-        { keys: { id: 1 }, options: { unique: true, name: `${name}_id_unique` } },
-        { keys: { 'bond.lifeId': 1, 'bond.targetId': 1, 'bond.targetType': 1 }, options: { name: `${name}_target` } },
+        { keys: { 'bond.id': 1 }, options: { unique: true, name: `${name}_id_unique` } },
+        { keys: { 'bond.lifeId': 1, 'bond.status': 1, 'bond.targetType': 1, 'bond.targetId': 1 }, options: { name: `${name}_life_status_target` } },
+        { keys: { 'bond.lifeId': 1, 'bond.status': 1, 'bond.interactionCount': -1 }, options: { name: `${name}_life_interaction` } },
         { keys: { 'bond.lifeId': 1, 'bond.updatedAt': -1 }, options: { name: `${name}_life_updated` } },
       ],
     })
@@ -629,34 +693,28 @@ export class MongoBondRepository extends MemoryBondRepository {
     if (fromMongo) await super.save(fromMongo)
   }
 
-  /**
-   * 【D1-1】按 lifeId 服务端缩小集合后，在子集上跑继承的内存过滤逻辑。
-   * 取代旧的 hydrate() 全表加载：只 find({ 'bond.lifeId': lifeId })，零语义偏移。
-   */
-  private async scopedByLife(lifeId: string): Promise<MemoryBondRepository> {
-    const bonds = await this.gateway.findMany({ 'bond.lifeId': lifeId })
-    const scoped = new MemoryBondRepository()
-    for (const bond of bonds) await scoped.save(bond)
-    return scoped
-  }
-
   async getById(id: string): Promise<Bond | undefined> {
     const fromMongo = await this.gateway.findById(id)
     if (fromMongo) return fromMongo
     return super.getById(id)
   }
 
+  /**
+   * 【C】单次 findOne 直查（嵌套 bond.* 路径），对齐内存版语义：
+   * 排除 deleted；targetType 缺省补 actor 后等值匹配。
+   * 取代 D1-1 的"未命中再 scopedByLife 全拉回退"分支。
+   */
   async getByLifeAndTarget(lifeId: string, targetId: string, targetType?: BondTargetType): Promise<Bond | undefined> {
-    // 【D1-1/A-M5】filter 用嵌套字段路径 'bond.*'（文档把领域模型存于 bond 字段下），
-    // 修正旧的顶层 { lifeId, targetId, targetType } 形状不匹配；不命中再按 lifeId 子集回退。
-    const document = await this.collection.findOne(
-      targetType === undefined
-        ? { 'bond.lifeId': lifeId, 'bond.targetId': targetId }
-        : { 'bond.lifeId': lifeId, 'bond.targetId': targetId, 'bond.targetType': targetType },
-    )
-    if (document) return cloneBond(document.bond)
-    const scoped = await this.scopedByLife(lifeId)
-    return scoped.getByLifeAndTarget(lifeId, targetId, targetType)
+    const filter: Record<string, unknown> = {
+      'bond.lifeId': lifeId,
+      'bond.targetId': targetId,
+      'bond.status': { $ne: 'deleted' },
+    }
+    if (targetType !== undefined) {
+      filter['bond.targetType'] = normalizeTargetType(targetType)
+    }
+    const document = await this.collection.findOne(filter)
+    return document ? cloneBond(document.bond) : undefined
   }
 
   async save(bond: Bond): Promise<void> {
@@ -685,14 +743,42 @@ export class MongoBondRepository extends MemoryBondRepository {
     this.evictLocal(id)
   }
 
+  /**
+   * 【C】查询下推：filter/sort/limit 直接下发 Mongo（findMany 单次往返），
+   * 取代 D1-1 的 scopedByLife 子集加载路径。语义对齐说明：
+   * - 可精确下推的维度（等值/$in（targetType 别名展开）/$gte/$lte、排序）由服务端完成；
+   * - 窗口：服务端取 [0, limit+offset)（tags 精滤路径放大 3 倍），
+   *   页切片 slice(offset, offset+limit) 在内存完成；
+   * - tags（大小写不敏感 ALL）不下推，拉取放大窗口后内存精滤再截断
+   *   （命中集超过放大窗口时 total/尾页可能偏小）；
+   * - total 为下推窗口内计数（limit/offset 存在时不再全量计数——无生产消费方依赖全量 total）。
+   */
   async query(query: BondQuery): Promise<BondSearchResult> {
-    const scoped = await this.scopedByLife(query.lifeId)
-    return scoped.query(query)
+    const needsRefine = (query.tags?.length ?? 0) > 0
+    const offset = query.offset ?? 0
+    const windowLimit = query.limit !== undefined ? query.limit + offset : undefined
+    const fetchLimit = needsRefine && windowLimit !== undefined ? windowLimit * 3 : windowLimit
+
+    const findOptions: MongoFindOptions = { sort: buildBondSort(query) }
+    if (fetchLimit !== undefined) findOptions.limit = fetchLimit
+
+    const fetched = await this.gateway.findMany(buildBondFilter(query), findOptions)
+
+    const matched = needsRefine
+      ? fetched.filter((bond) => hasAllTags(bond.tags, query.tags))
+      : fetched
+
+    return {
+      bonds: matched.slice(offset, query.limit !== undefined ? offset + query.limit : undefined),
+      total: matched.length,
+      query,
+      retrievedAt: Date.now(),
+    }
   }
 
   async listByLife(lifeId: string, options?: BondQueryOptions): Promise<Bond[]> {
-    const scoped = await this.scopedByLife(lifeId)
-    return scoped.listByLife(lifeId, options)
+    const result = await this.query({ lifeId, ...options })
+    return result.bonds
   }
 }
 
@@ -768,9 +854,6 @@ export class DefaultBondService implements BondService {
       const metrics = applyDelta(existing.metrics, delta)
       const bond = await this.repository.update(existing.id, {
         metrics,
-        familiarity: metrics.familiarity,
-        intimacy: metrics.intimacy,
-        trust: metrics.trust,
         summary: request.summary ?? existing.summary,
         tags: mergeTags(existing.tags, request.tags),
         actorId: request.actorId ?? existing.actorId,
@@ -817,14 +900,10 @@ export class DefaultBondService implements BondService {
         ? request.metadata.bondId
         : nextBondId(),
       lifeId: request.lifeId,
-      lifeInstanceId: request.lifeId,
       targetId: target.targetId,
       targetType,
       status: 'active',
       metrics,
-      familiarity: metrics.familiarity,
-      intimacy: metrics.intimacy,
-      trust: metrics.trust,
       summary: request.summary,
       tags: normalizeTags(request.tags),
       actorId: request.actorId,

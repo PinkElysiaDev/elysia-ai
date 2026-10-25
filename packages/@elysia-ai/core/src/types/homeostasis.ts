@@ -1,21 +1,17 @@
 export interface HomeostasisState {
-  lifeInstanceId: string
   timestamp: number
   energy: number
   mood: number
   sociability: number
   curiosity: number
-  responseThreshold: number
   metadata?: Record<string, unknown>
 }
 
 export interface HomeostasisDelta {
-  lifeInstanceId: string
   energy: number
   mood: number
   sociability: number
   curiosity: number
-  responseThreshold: number
   reason: string
 }
 
@@ -35,7 +31,7 @@ export interface HomeostasisUpdateRequest {
   reason: string
   delta?: Partial<Pick<
     HomeostasisDelta,
-    'energy' | 'mood' | 'sociability' | 'curiosity' | 'responseThreshold'
+    'energy' | 'mood' | 'sociability' | 'curiosity'
   >>
   source?: HomeostasisUpdateSource
   createdAt: number

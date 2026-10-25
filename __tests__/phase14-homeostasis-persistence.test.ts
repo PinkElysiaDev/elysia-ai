@@ -24,7 +24,7 @@ function createMockKoishiContext(runtime: Runtime) {
   const disposeHandlers: Array<() => void> = []
 
   const ctx: any = {
-    'elysia-ai-runtime': runtime,
+    'elysia.runtime': runtime,
 
     logger() {
       return {
@@ -66,8 +66,6 @@ function installHomeostasis(ctx: any) {
     curiosityDecayPerTick: 0.002,
     maxValue: 1,
     minValue: 0,
-    responseThresholdMin: 0.3,
-    responseThresholdMax: 0.8,
     restoreOnStartup: true,
   })
 }
@@ -103,7 +101,6 @@ function createPersistedState(lifeInstanceId: string): HomeostasisState {
     mood: 0.33,
     sociability: 0.24,
     curiosity: 0.15,
-    responseThreshold: 0.66,
     metadata: {
       source: 'phase14-test',
     },
@@ -132,12 +129,11 @@ describe('Phase 14 Homeostasis Persistence 集成测试', () => {
 
     const state = await runtime.stateRepository.getByLifeInstanceId('life-phase14-init')
 
-    expect(state?.lifeInstanceId).toBe('life-phase14-init')
+    expect(typeof state?.timestamp).toBe('number')
     expect(state?.energy).toBe(0.8)
     expect(state?.mood).toBe(0.6)
     expect(state?.sociability).toBe(0.5)
     expect(state?.curiosity).toBe(0.7)
-    expect(typeof state?.responseThreshold).toBe('number')
   })
 
   it('已有状态时 life.loaded 恢复而不是重置', async () => {
@@ -200,7 +196,7 @@ describe('Phase 14 Homeostasis Persistence 集成测试', () => {
     const after = await runtime.stateRepository.getByLifeInstanceId('life-phase14-tick')
 
     expect(updates).toHaveLength(1)
-    expect(after?.lifeInstanceId).toBe('life-phase14-tick')
+    expect(after).toBeDefined()
     expect(after?.timestamp).toBeGreaterThanOrEqual(before?.timestamp ?? 0)
     // D3-1：初始值即基线（baseline 默认取 initial），故在基线处的 energy 不漂移。
     expect(after?.energy).toBeCloseTo(before?.energy ?? 0)
@@ -225,8 +221,8 @@ describe('Phase 14 Homeostasis Persistence 集成测试', () => {
     const stateA = await runtime.stateRepository.getByLifeInstanceId('life-phase14-a')
     const stateB = await runtime.stateRepository.getByLifeInstanceId('life-phase14-b')
 
-    expect(stateA?.lifeInstanceId).toBe('life-phase14-a')
-    expect(stateB?.lifeInstanceId).toBe('life-phase14-b')
+    expect(stateA?.energy).toBe(0.8)
+    expect(stateB?.energy).toBe(0.8)
     expect(stateA).not.toBe(stateB)
 
     await runtime.context.eventBus.emit('projection.routed', {
@@ -248,8 +244,8 @@ describe('Phase 14 Homeostasis Persistence 集成测试', () => {
     const nextA = await runtime.stateRepository.getByLifeInstanceId('life-phase14-a')
     const nextB = await runtime.stateRepository.getByLifeInstanceId('life-phase14-b')
 
-    expect(nextA?.lifeInstanceId).toBe('life-phase14-a')
-    expect(nextB?.lifeInstanceId).toBe('life-phase14-b')
+    expect(nextA?.timestamp).toBeGreaterThanOrEqual(stateA?.timestamp ?? 0)
+    expect(nextB?.timestamp).toBeGreaterThanOrEqual(stateB?.timestamp ?? 0)
     // D3-1：初始即基线，基线处不漂移；两 life 仍各自独立 tick。
     expect(nextA?.energy).toBeCloseTo(stateA?.energy ?? 0)
     expect(nextB?.energy).toBeCloseTo(stateB?.energy ?? 0)

@@ -4,16 +4,14 @@ import { MongoDocRepository, type MongoDocLikeCollection } from '@elysia-ai/shar
 // ─────────────────────────────────────────────────
 // Mongo ProjectionRule 仓储（裸 driver，组合 MongoDocRepository）
 //
-// 文档形态：{ id, rule: ProjectionRule, createdAt, updatedAt }，与 memory/bond 一致。
+// 文档形态：{ rule: ProjectionRule }（领域对象整体嵌入，文档键/唯一索引走
+// rule.id，无外层骨架；规则是配置性数据，不携带时间戳）。
 // ProjectionRule 由配置派生、数量小，listEnabled/listAll 非 lifeId 维度，故用
 // findMany({}) 取全集合后在内存筛选——对小集合可接受，无并发计数热点。
 // ─────────────────────────────────────────────────
 
 export interface MongoProjectionRuleDocument {
-  id: string
   rule: ProjectionRule
-  createdAt: number
-  updatedAt: number
 }
 
 export interface MongoProjectionRuleRepositoryOptions {
@@ -41,7 +39,7 @@ export class MongoProjectionRuleRepository implements ProjectionRuleRepository {
       toModel: (doc) => doc.rule,
       cloneModel: cloneRule,
       indexes: options.ensureIndexes === false ? [] : [
-        { keys: { id: 1 }, options: { unique: true, name: `${name}_id_unique` } },
+        { keys: { 'rule.id': 1 }, options: { unique: true, name: `${name}_id_unique` } },
         { keys: { 'rule.lifeId': 1 }, options: { name: `${name}_life` } },
         { keys: { 'rule.enabled': 1 }, options: { name: `${name}_enabled` } },
       ],
@@ -61,9 +59,9 @@ export class MongoProjectionRuleRepository implements ProjectionRuleRepository {
   }
 
   async listEnabled(): Promise<ProjectionRule[]> {
-    // enabled !== false（含 undefined 视为启用），故全量取后在内存筛选。
-    const rules = await this.gateway.findMany({})
-    return rules.filter((rule) => rule.enabled !== false)
+    // 【D】enabled !== false（含 undefined/缺失视为启用）直接以 $ne 下推：
+    // Mongo 的 $ne 对缺失字段同样命中，与原内存筛选语义一致，无需全量拉取。
+    return this.gateway.findMany({ 'rule.enabled': { $ne: false } })
   }
 
   async listAll(): Promise<ProjectionRule[]> {

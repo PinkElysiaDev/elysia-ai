@@ -7,9 +7,6 @@ export const bondTargetTypeSchema = z.enum([
   'thread',
   'projection',
   'external',
-  'individual',
-  'collective',
-  'channel',
 ])
 
 export const bondStatusSchema = z.enum([
@@ -40,14 +37,10 @@ export const bondSourceSchema = z.object({
 export const bondSchema = z.object({
   id: z.string(),
   lifeId: z.string(),
-  lifeInstanceId: z.string().optional(),
   targetId: z.string(),
   targetType: bondTargetTypeSchema,
   status: bondStatusSchema,
   metrics: bondMetricsSchema,
-  familiarity: z.number().optional(),
-  intimacy: z.number().optional(),
-  trust: z.number().optional(),
   summary: z.string().optional(),
   tags: z.array(z.string()).optional(),
   actorId: z.string().optional(),

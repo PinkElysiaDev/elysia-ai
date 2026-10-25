@@ -56,13 +56,15 @@ function kindFromEvent(event: string): ObservedEventKind {
     case 'runtime':
     case 'life':
     case 'stimulus':
+    case 'projection':
+    case 'perception':
+    case 'cognition':
     case 'behavior':
+    case 'body':
     case 'dialogue':
     case 'brain':
     case 'gateway':
     case 'sender':
-    case 'body':
-    case 'scheduler':
     case 'memory':
     case 'bond':
     case 'homeostasis':
@@ -75,7 +77,9 @@ function kindFromEvent(event: string): ObservedEventKind {
 
 function statusFromEvent(event: string): ObservedEventStatus {
   if (event.endsWith('.failed')) return 'failed'
-  const action = event.split('.')[1]
+  // W3：取事件名最后一段（body.message.sent → sent、bond.relevance.selection.completed
+  // → completed）——此前固定取第二段，三段以上事件全部落入 default。
+  const action = event.split('.').pop()
   switch (action) {
     case 'starting':
     case 'started':
@@ -97,6 +101,9 @@ function statusFromEvent(event: string): ObservedEventStatus {
     case 'updated':
     case 'consolidated':
     case 'initialized':
+    case 'recorded':
+    case 'routed':
+    case 'fired':
       return action
     default:
       return 'completed'
@@ -112,10 +119,8 @@ function extractStimulusId(event: string, payload: Record<string, unknown>): str
     firstString(getNested(payload, ['response', 'metadata', 'sourceStimulusIds'])) ??
     asString(getNested(payload, ['task', 'target', 'sourceStimulusId'])) ??
     asString(getNested(payload, ['task', 'payload', 'sourceStimulusId'])) ??
-    asString(getNested(payload, ['result', 'scheduledTask', 'payload', 'sourceStimulusId'])) ??
     asString(getNested(payload, ['plan', 'stimulusId'])) ??
     asString(getNested(payload, ['action', 'payload', 'request', 'stimulusId'])) ??
-    asString(getNested(payload, ['result', 'scheduledTask', 'payload', 'stimulus', 'metadata', 'originalStimulusId'])) ??
     asString(getNested(payload, ['instruction', 'stimulusId'])) ??
     asString(getNested(payload, ['request', 'stimulusId'])) ??
     asString(getNested(payload, ['result', 'state', 'metadata', 'lastHomeostasisUpdateSource', 'stimulusId']))
@@ -200,14 +205,13 @@ function extractBondTargetType(payload: Record<string, unknown>): string | undef
 function extractLifeId(payload: Record<string, unknown>): string | undefined {
   return (
     asString(payload.lifeId) ??
+    asString(payload.lifeInstanceId) ??
     asString(getNested(payload, ['instruction', 'lifeId'])) ??
     asString(getNested(payload, ['request', 'lifeId'])) ??
     asString(getNested(payload, ['entry', 'lifeId'])) ??
     asString(getNested(payload, ['result', 'entry', 'lifeId'])) ??
     asString(getNested(payload, ['bond', 'lifeId'])) ??
     asString(getNested(payload, ['result', 'bond', 'lifeId'])) ??
-    asString(getNested(payload, ['state', 'lifeInstanceId'])) ??
-    asString(getNested(payload, ['result', 'state', 'lifeInstanceId'])) ??
     asString(getNested(payload, ['task', 'lifeId']))
   )
 }
@@ -236,9 +240,13 @@ function extractScopeType(payload: Record<string, unknown>): string | undefined 
 
 function summarizeError(error: unknown): Record<string, unknown> {
   if (error instanceof Error) {
+    // class 携带稳定错误分类（ProviderError/MaheshvaraError，与 errorKind 同值域），
+    // 非文本载荷，保留不脱敏。
+    const classField = (error as { class?: unknown }).class
     return {
       name: error.name,
       message: error.message,
+      ...(typeof classField === 'string' && classField !== '' ? { class: classField } : {}),
     }
   }
   return { message: String(error) }
@@ -246,6 +254,9 @@ function summarizeError(error: unknown): Record<string, unknown> {
 
 // 承载用户/模型自然语言内容的字段：在脱敏时只保留长度/数量摘要，
 // 避免完整 prompt、记忆文本、系统提示词等内容泄露进 observatory trace。
+// 触发器架构新增载荷一并纳入：currentUserContent（唤醒提示全文）、
+// segments（agentic 逐字回复）、rawContent/quoteContent（平台原始/引用原文）、
+// directive（定向指令）、currentusercontent 归一后同 key。
 const TEXT_CONTENT_KEYS = new Set([
   'content',
   'text',
@@ -255,6 +266,11 @@ const TEXT_CONTENT_KEYS = new Set([
   'usermessage',
   'reply',
   'output',
+  'currentusercontent',
+  'segments',
+  'rawcontent',
+  'quotecontent',
+  'directive',
 ])
 
 function sanitizeValue(value: unknown, depth = 0, seen = new WeakSet<object>()): unknown {
@@ -278,40 +294,44 @@ function sanitizeValue(value: unknown, depth = 0, seen = new WeakSet<object>()):
   if (typeof value === 'object') {
     if (seen.has(value)) return '[Circular]'
     seen.add(value)
-
-    const output: Record<string, unknown> = {}
-    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-      const normalizedKey = key.toLowerCase()
-      if (
-        normalizedKey.includes('apikey')
-        || normalizedKey.includes('api_key')
-        || normalizedKey.includes('secret')
-        || normalizedKey.includes('token')
-        || normalizedKey.includes('authorization')
-      ) {
-        output[key] = '[Redacted]'
-        continue
-      }
-      if (key === 'messages' && Array.isArray(child)) {
-        output[key] = { count: child.length }
-        continue
-      }
-      // 任何承载用户/模型自然语言内容的字段都按长度/数量摘要，避免泄露完整 prompt。
-      // content 可能是字符串（普通文本）或数组（Koishi 消息元素），两者都需摘要。
-      if (TEXT_CONTENT_KEYS.has(normalizedKey)) {
-        if (typeof child === 'string') {
-          output[key] = { length: child.length }
+    try {
+      const output: Record<string, unknown> = {}
+      for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+        const normalizedKey = key.toLowerCase()
+        if (
+          normalizedKey.includes('apikey')
+          || normalizedKey.includes('api_key')
+          || normalizedKey.includes('secret')
+          || normalizedKey.includes('token')
+          || normalizedKey.includes('authorization')
+        ) {
+          output[key] = '[Redacted]'
           continue
         }
-        if (Array.isArray(child)) {
+        if (key === 'messages' && Array.isArray(child)) {
           output[key] = { count: child.length }
           continue
         }
+        // 任何承载用户/模型自然语言内容的字段都按长度/数量摘要，避免泄露完整 prompt。
+        // content 可能是字符串（普通文本）或数组（Koishi 消息元素），两者都需摘要。
+        if (TEXT_CONTENT_KEYS.has(normalizedKey)) {
+          if (typeof child === 'string') {
+            output[key] = { length: child.length }
+            continue
+          }
+          if (Array.isArray(child)) {
+            output[key] = { count: child.length }
+            continue
+          }
+        }
+        output[key] = sanitizeValue(child, depth + 1, seen)
       }
-      output[key] = sanitizeValue(child, depth + 1, seen)
-    }
 
-    return output
+      return output
+    } finally {
+      // W3：后序移除 seen 标记——DAG 中同对象被多处引用（非真环）不再误判 Circular。
+      seen.delete(value)
+    }
   }
 
   return String(value)
@@ -338,6 +358,11 @@ function extractGatewayFailureRecord(event: ObservedEventRecord): GatewayFailure
   const diagnostics = asRecord(metadata.diagnostics)
   const route = asRecord(diagnostics.route)
   const finalErrorCode = asString(diagnostics.finalErrorCode) ?? asString(getNested(metadata, ['error', 'code']))
+  const attempts = Array.isArray(diagnostics.attempts) ? diagnostics.attempts : []
+  const lastAttemptClass = [...attempts]
+    .reverse()
+    .map((attempt) => asString(asRecord(attempt).errorClass))
+    .find((errorClass) => errorClass !== '')
 
   return {
     event,
@@ -346,6 +371,7 @@ function extractGatewayFailureRecord(event: ObservedEventRecord): GatewayFailure
     slot: asString(route.slot),
     model: asString(route.model),
     errorCode: finalErrorCode,
+    errorClass: lastAttemptClass ?? asString(getNested(metadata, ['error', 'class'])),
     fallbackChain: asStringArray(diagnostics.fallbackChain),
     selectedFallbackSlot: asString(diagnostics.selectedFallbackSlot),
     failedOver: typeof diagnostics.failedOver === 'boolean' ? diagnostics.failedOver : undefined,
@@ -357,6 +383,7 @@ function createGatewayAnalytics(events: ObservedEventRecord[], recentFailureLimi
   const gatewayEvents = events.filter((event) => event.kind === 'gateway')
   const byProviderId: Record<string, number> = {}
   const byErrorCode: Record<string, number> = {}
+  const byErrorClass: Record<string, number> = {}
   const byFallbackSlot: Record<string, number> = {}
   const recentFailures: GatewayFailureRecord[] = []
 
@@ -380,6 +407,7 @@ function createGatewayAnalytics(events: ObservedEventRecord[], recentFailureLimi
       const failureRecord = extractGatewayFailureRecord(event)
       recentFailures.push(failureRecord)
       incrementCounter(byErrorCode, failureRecord.errorCode)
+      incrementCounter(byErrorClass, failureRecord.errorClass)
     }
 
     if (diagnostics.failedOver === true) {
@@ -402,6 +430,7 @@ function createGatewayAnalytics(events: ObservedEventRecord[], recentFailureLimi
     circuitOpenCount,
     byProviderId,
     byErrorCode,
+    byErrorClass,
     byFallbackSlot,
     recentFailures: recentFailures.slice(-recentFailureLimit),
   }
@@ -502,9 +531,6 @@ function createOperationalSnapshot(
 function createSummary(event: string, payload: Record<string, unknown>): string {
   if (event === 'stimulus.received') {
     return `stimulus received: ${String(getNested(payload, ['stimulus', 'type']) ?? 'unknown')}`
-  }
-  if (event === 'behavior.selected') {
-    return `behavior selected: ${String(payload.decision ?? 'unknown')}`
   }
   if (event === 'behavior.instruction') {
     const actions = getNested(payload, ['instruction', 'actions'])
@@ -616,7 +642,6 @@ export class DefaultObservatoryService {
       taskId: extractTaskId(payloadRecord),
       executionPlanId: extractExecutionPlanId(payloadRecord),
       executionActionId: extractExecutionActionId(payloadRecord),
-      scheduledTaskId: extractTaskId(payloadRecord),
       memoryId: extractMemoryId(payloadRecord),
       memoryRequestId: eventName === 'behavior.memory.update.requested' || eventName.startsWith('memory.') ? extractRequestId(payloadRecord, 'memory') : undefined,
       bondId: extractBondId(payloadRecord),

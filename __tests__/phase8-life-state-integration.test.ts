@@ -1,12 +1,13 @@
 /**
  * Phase 8 Life State Integration 集成测试
  *
- * 验证生命状态层正式接入主链：
+ * 验证生命状态层接入主链：
  * 1. perception.completed 发出完整 PerceptionResult
- * 2. homeostasis.updated 发出 state / delta
- * 3. cognition 基于 projection.routed 按 life 独立推理
- * 4. cognition gate 可以阻止低显著性 stimulus 进入 behavior
- * 5. 高显著性 stimulus 可以正常产生 behavior.instruction
+ * 2. homeostasis.updated 发出 state / delta（事件驱动的状态更新）
+ * 3. cognition（事件注入层）基于 projection.routed 按 life 独立入账事件
+ *
+ * （旧"homeostasis → behavior 信号调制 / cognition 显著性闸门"用例已随
+ * 触发器重构删除：普通刺激只进事件历史与密度合并器。）
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
@@ -14,7 +15,6 @@ import { asCordisContext } from 'koishi'
 import { createDefaultRuntime } from '../packages/elysia-ai-runtime/src/runtime.js'
 import type { Runtime } from '../packages/elysia-ai-runtime/src/runtime.js'
 import type {
-  CognitionResult,
   CoreEventMap,
   HomeostasisDelta,
   HomeostasisState,
@@ -31,7 +31,7 @@ function createMockKoishiContext(runtime: Runtime) {
   const disposeHandlers: Array<() => void> = []
 
   const ctx: any = {
-    'elysia-ai-runtime': runtime,
+    'elysia.runtime': runtime,
 
     logger() {
       return {
@@ -80,28 +80,28 @@ function installLifeStatePipeline(ctx: any) {
     curiosityDecayPerTick: 0.002,
     maxValue: 1,
     minValue: 0,
-    responseThresholdMin: 0.3,
-    responseThresholdMax: 0.8,
   })
 
-  // cognition 必须早于 behavior 注册 projection.routed 监听，
-  // 以保证同一轮 projection 中 cognition.completed 先进入 behavior 缓存。
+  // cognition（事件注入层）先于 behavior 注册：behavior 依赖 elysia.cognition 服务。
   cognitionPlugin.apply(ctx, {
-    recentConversationLimit: 12,
-    salienceDirectMentionBonus: 0.35,
-    salienceDirectMessageBonus: 0.25,
-    salienceReplyBonus: 0.2,
-    salienceQuestionBonus: 0.15,
-    salienceLengthFactor: 0.001,
-    behaviorThreshold: 0.35,
+    events: {
+      enabled: true,
+      feed: { maxEvents: 30 },
+      history: { maxEvents: 100, windowMs: 30 * 60_000 },
+    },
   })
 
   behaviorPlugin.apply(ctx, {
     enableReply: true,
-    directWindowMs: 1500,
-    userBufferedWindowMs: 2500,
-    threadBufferedWindowMs: 3500,
-    habitatBufferedWindowMs: 5000,
+    batcher: {
+      quietWindowMs: 8_000,
+      dmQuietWindowMs: 1_500,
+      maxWaitMs: 30_000,
+      densityWindowMs: 10_000,
+      densityThreshold: 15,
+      maxBatch: 50,
+    },
+    packMemory: { maxPacks: 12, injectPacks: 2 },
   })
 }
 
@@ -166,9 +166,9 @@ describe('Phase 8 Life State Integration 集成测试', () => {
     ctx = createMockKoishiContext(runtime)
     installLifeStatePipeline(ctx)
 
-    const updates: Array<{ state: HomeostasisState; delta: HomeostasisDelta }> = []
-    runtime.context.eventBus.on('homeostasis.updated', ({ state, delta }) => {
-      updates.push({ state, delta })
+    const updates: Array<{ lifeInstanceId?: string; state: HomeostasisState; delta: HomeostasisDelta }> = []
+    runtime.context.eventBus.on('homeostasis.updated', ({ lifeInstanceId, state, delta }) => {
+      updates.push({ lifeInstanceId, state, delta })
     })
 
     await runtime.loadManifest({
@@ -179,21 +179,19 @@ describe('Phase 8 Life State Integration 集成测试', () => {
     await runtime.receiveStimulus(createStimulus('p8-homeostasis-1'))
 
     expect(updates).toHaveLength(1)
-    expect(updates[0].state.lifeInstanceId).toBe('life-homeostasis')
+    expect(updates[0].lifeInstanceId).toBe('life-homeostasis')
     expect(typeof updates[0].state.energy).toBe('number')
-    expect(typeof updates[0].state.responseThreshold).toBe('number')
-    expect(updates[0].delta.lifeInstanceId).toBe('life-homeostasis')
     expect(typeof updates[0].delta.energy).toBe('number')
   })
 
-  it('cognition 基于 projection.routed 按 life 独立推理', async () => {
+  it('cognition 基于 projection.routed 按 life 独立入账事件', async () => {
     runtime = createDefaultRuntime()
     await runtime.start()
     ctx = createMockKoishiContext(runtime)
     installLifeStatePipeline(ctx)
 
-    const results: CognitionResult[] = []
-    runtime.context.eventBus.on('cognition.completed', (result) => {
+    const results: CoreEventMap['cognition.event.recorded'][] = []
+    runtime.context.eventBus.on('cognition.event.recorded', (result) => {
       results.push(result)
     })
 
@@ -215,71 +213,7 @@ describe('Phase 8 Life State Integration 集成测试', () => {
     expect(results.map((result) => result.lifeId)).toContain('life-cognition-a')
     expect(results.map((result) => result.lifeId)).toContain('life-cognition-b')
     expect(results.every((result) => result.stimulusId === 'p8-cognition-1')).toBe(true)
-  })
-
-  it('cognition gate 阻止低显著性 stimulus 进入 behavior', async () => {
-    runtime = createDefaultRuntime()
-    await runtime.start()
-    ctx = createMockKoishiContext(runtime)
-    installLifeStatePipeline(ctx)
-
-    const cognitionResults: CognitionResult[] = []
-    const instructions: CoreEventMap['behavior.instruction'][] = []
-
-    runtime.context.eventBus.on('cognition.completed', (result) => {
-      cognitionResults.push(result)
-    })
-    runtime.context.eventBus.on('behavior.instruction', (payload) => {
-      instructions.push(payload)
-    })
-
-    await runtime.loadManifest({
-      version: '1.0',
-      lifeInstances: [{ id: 'life-low-salience', type: 'elysia-default' }],
-    })
-
-    await runtime.receiveStimulus(createStimulus('p8-low-salience-1', {
-      type: 'silence',
-      payload: {},
-    }))
-
-    expect(cognitionResults).toHaveLength(1)
-    expect(cognitionResults[0].shouldEnterBehavior).toBe(false)
-    expect(instructions).toHaveLength(0)
-  })
-
-  it('高显著性 stimulus 可以正常产生 behavior.instruction', async () => {
-    runtime = createDefaultRuntime()
-    await runtime.start()
-    ctx = createMockKoishiContext(runtime)
-    installLifeStatePipeline(ctx)
-
-    const cognitionResults: CognitionResult[] = []
-    const instructions: CoreEventMap['behavior.instruction'][] = []
-
-    runtime.context.eventBus.on('cognition.completed', (result) => {
-      cognitionResults.push(result)
-    })
-    runtime.context.eventBus.on('behavior.instruction', (payload) => {
-      instructions.push(payload)
-    })
-
-    await runtime.loadManifest({
-      version: '1.0',
-      lifeInstances: [{ id: 'life-high-salience', type: 'elysia-default' }],
-    })
-
-    await runtime.receiveStimulus(createStimulus('p8-high-salience-1', {
-      type: 'addressing',
-      isMentioned: true,
-      isDirectMessage: true,
-      payload: { content: '@Elysia 你觉得我现在应该怎么做？' },
-    }))
-
-    expect(cognitionResults).toHaveLength(1)
-    expect(cognitionResults[0].shouldEnterBehavior).toBe(true)
-    expect(instructions).toHaveLength(1)
-    expect(instructions[0].instruction.lifeId).toBe('life-high-salience')
-    expect(instructions[0].instruction.stimulusId).toBe('p8-high-salience-1')
+    // addressing 刺激派生为 mention 目录事件
+    expect(results.every((result) => result.event.key === 'mention')).toBe(true)
   })
 })

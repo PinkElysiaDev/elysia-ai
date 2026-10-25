@@ -7,7 +7,7 @@
  * 3. getByLifeInstanceId() 能读回状态
  * 4. 不存在的 life 返回 null
  * 5. 多 life 状态互不污染
- * 6. 同一 life 重复 save 会覆盖 state 并保留 createdAt
+ * 6. 同一 life 重复 save 会整体覆盖 state（文档 { lifeInstanceId, stateType, state } 无外层骨架时间戳）
  */
 
 import { describe, expect, it } from 'vitest'
@@ -34,12 +34,10 @@ class FakeMongoStateCollection<TState> implements MongoStateCollection<TState> {
     update: {
       $set: {
         state: TState
-        updatedAt: number
       }
       $setOnInsert: {
         lifeInstanceId: string
         stateType: string
-        createdAt: number
       }
     },
     options: { upsert: true },
@@ -47,13 +45,10 @@ class FakeMongoStateCollection<TState> implements MongoStateCollection<TState> {
     if (!options.upsert) throw new Error('FakeMongoStateCollection only supports upsert updates')
 
     const key = this.resolveKey(filter.lifeInstanceId, filter.stateType)
-    const existing = this.documents.get(key)
 
     this.documents.set(key, {
       lifeInstanceId: update.$setOnInsert.lifeInstanceId,
       stateType: update.$setOnInsert.stateType,
-      createdAt: existing?.createdAt ?? update.$setOnInsert.createdAt,
-      updatedAt: update.$set.updatedAt,
       state: update.$set.state,
     })
 
@@ -73,15 +68,13 @@ class FakeMongoStateCollection<TState> implements MongoStateCollection<TState> {
   }
 }
 
-function createState(lifeInstanceId: string, energy: number): HomeostasisState {
+function createState(_lifeInstanceId: string, energy: number): HomeostasisState {
   return {
-    lifeInstanceId,
     timestamp: Date.now(),
     energy,
     mood: 0.6,
     sociability: 0.5,
     curiosity: 0.7,
-    responseThreshold: 0.4,
   }
 }
 
@@ -135,7 +128,7 @@ describe('Phase 15 Mongo State Repository 集成测试', () => {
     await expect(repository.getByLifeInstanceId('life-phase15-b')).resolves.toEqual(stateB)
   })
 
-  it('同一 life 重复 save 会覆盖 state 并保留 createdAt', async () => {
+  it('同一 life 重复 save 会整体覆盖 state（无外层骨架时间戳）', async () => {
     const collection = new FakeMongoStateCollection<HomeostasisState>()
     const repository = new MongoStateRepository<HomeostasisState>(collection)
 
@@ -155,8 +148,9 @@ describe('Phase 15 Mongo State Repository 集成测试', () => {
     })
 
     expect(secondDocument?.state).toEqual(second)
-    expect(secondDocument?.createdAt).toBe(firstDocument?.createdAt)
-    expect(secondDocument?.updatedAt).toBeGreaterThanOrEqual(firstDocument?.updatedAt ?? 0)
+    // 文档形态：只有 { lifeInstanceId, stateType, state }，时间语义在 state.timestamp 里
+    expect(Object.keys(secondDocument ?? {}).sort()).toEqual(['lifeInstanceId', 'state', 'stateType'])
+    expect(firstDocument?.lifeInstanceId).toBe('life-phase15-upsert')
   })
 
   it('支持通过 stateType 隔离不同状态类型', async () => {
